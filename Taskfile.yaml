@@ -5,8 +5,8 @@ vars:
   API_DIRS: '{{.ROOT_DIR}}/api/v1alpha1/...'
   MANIFEST_OUT: '{{.ROOT_DIR}}/api/crds/manifests'
   CODE_DIRS: '{{.ROOT_DIR}}/cmd/... {{.ROOT_DIR}}/internal/... {{.ROOT_DIR}}/api/v1alpha1/... {{.ROOT_DIR}}/pkg/...'
-  COMPONENTS: 'service-provider-template'
-  REPO_NAME: 'https://github.com/openmcp-project/service-provider-template'
+  COMPONENTS: 'service-provider-external-secrets'
+  REPO_NAME: 'https://github.com/openmcp-project/service-provider-external-secrets'
 
 includes:
   shared:
