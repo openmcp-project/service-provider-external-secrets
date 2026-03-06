@@ -31,7 +31,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
-	spruntime "github.com/openmcp-project/service-provider-external-secrets/pkg/runtime"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object

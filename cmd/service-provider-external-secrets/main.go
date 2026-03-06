@@ -53,7 +53,7 @@ import (
 
 	"github.com/openmcp-project/service-provider-external-secrets/api/crds"
 
-	spruntime "github.com/openmcp-project/service-provider-external-secrets/pkg/runtime"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 
 	externalsecretsoperatorsv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/internal/controller"
