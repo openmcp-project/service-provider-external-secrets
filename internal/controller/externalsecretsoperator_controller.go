@@ -18,19 +18,21 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"reflect"
 	"time"
 
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"github.com/openmcp-project/controller-utils/pkg/controller"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
@@ -45,77 +47,109 @@ type ExternalSecretsOperatorReconciler struct {
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, svcobj *apiv1alpha1.ExternalSecretsOperator, _ *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
-	l := logf.FromContext(ctx)
-	spruntime.StatusProgressing(svcobj, "Reconciling", "Reconcile in progress")
-	managedObj := &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "foos.example.domain",
-		},
-	}
-	if _, err := ctrl.CreateOrUpdate(ctx, clusters.MCPCluster.Client(), managedObj, func() error {
-		managedObj.Spec = fooCRD().Spec
-		return nil
-	}); err != nil {
-		l.Error(err, "createOrUpdate failed")
+func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
+	spruntime.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+	mgr, err := r.createObjectManager(obj, pc, clusters)
+	if err != nil {
+		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	spruntime.StatusReady(svcobj)
+	results := mgr.Apply(ctx)
+	managedResources, resultContainsErrors := resultsToResources(ctx, results)
+	obj.Status.Resources = managedResources
+	if allResourcesReady(managedResources) {
+		spruntime.StatusReady(obj)
+	}
+	if resultContainsErrors {
+		resultWithErrors := errors.New("resources contain reconcile errors")
+		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		return ctrl.Result{}, resultWithErrors
+	}
 	return ctrl.Result{}, nil
 }
 
 // Delete is called on every delete event
-func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, _ *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
-	l := logf.FromContext(ctx)
+func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
 	spruntime.StatusTerminating(obj)
-	managedObj := fooCRD()
-	if err := clusters.MCPCluster.Client().Delete(ctx, managedObj); client.IgnoreNotFound(err) != nil {
-		l.Error(err, "delete object failed")
+	mgr, err := r.createObjectManager(obj, pc, clusters)
+	if err != nil {
+		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	if err := clusters.MCPCluster.Client().Get(ctx, client.ObjectKeyFromObject(managedObj), managedObj); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+	results := mgr.Delete(ctx)
+	managedResources, resultContainsErrors := resultsToResources(ctx, results)
+	obj.Status.Resources = managedResources
+	if externalsecrets.AllDeleted(results) {
+		return ctrl.Result{}, nil
 	}
-	// object still exists
+	if resultContainsErrors {
+		resultWithErrors := errors.New("resources contain reconcile errors")
+		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		return ctrl.Result{}, resultWithErrors
+	}
 	return ctrl.Result{
-		RequeueAfter: time.Second * 10,
+		RequeueAfter: time.Second * 5,
 	}, nil
 }
 
-func fooCRD() *apiextensionsv1.CustomResourceDefinition {
-	return &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "foos.example.domain",
-		},
-		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
-			Group: "example.domain",
-			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
-				{
-					Name:    "v1alpha1",
-					Served:  true,
-					Storage: true,
-					Schema: &apiextensionsv1.CustomResourceValidation{
-						OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
-							Type: "object",
-							Properties: map[string]apiextensionsv1.JSONSchemaProps{
-								"spec": {
-									Type: "object",
-									Properties: map[string]apiextensionsv1.JSONSchemaProps{
-										"foo": {Type: "string"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			Scope: apiextensionsv1.NamespaceScoped,
-			Names: apiextensionsv1.CustomResourceDefinitionNames{
-				Plural:   "foos",
-				Singular: "foo",
-				Kind:     "Foo",
-				ListKind: "FooList",
-			},
-		},
+func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (externalsecrets.Manager, error) {
+	tenantNamespace, err := tenantNamespace(*obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine stable namespace for OCM instance: %w", err)
 	}
+	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.ManagedControlPlane)
+	externalsecrets.Configure(platformCluster, tenantNamespace, obj, pc, clusters)
+	mgr := externalsecrets.NewManager()
+	mgr.AddCluster(platformCluster)
+	return mgr, nil
+}
+
+func resultsToResources(ctx context.Context, results []externalsecrets.Result) ([]apiv1alpha1.ManagedResource, bool) {
+	l := log.FromContext(ctx)
+	containsError := false
+	resources := make([]apiv1alpha1.ManagedResource, 0, len(results))
+	for _, res := range results {
+		obj := res.Object.GetObject()
+		status := res.Object.GetStatus(apiv1alpha1.ResourceLocation(res.Cluster.GetClusterType()))
+		resources = append(resources, apiv1alpha1.ManagedResource{
+			TypedObjectReference: corev1.TypedObjectReference{
+				Kind:      reflect.TypeOf(obj).Elem().Name(),
+				Name:      obj.GetName(),
+				Namespace: nilIfEmptyString(obj.GetNamespace()),
+			},
+			Phase:    status.Phase,
+			Message:  status.Message,
+			Location: status.Location,
+		})
+		if res.Error != nil {
+			containsError = true
+			l.Error(res.Error, "objectID", externalsecrets.ObjectID(obj))
+		}
+	}
+	return resources, containsError
+}
+
+func nilIfEmptyString(str string) *string {
+	if str == "" {
+		return nil
+	}
+	return ptr.To(str)
+}
+
+func allResourcesReady(resources []apiv1alpha1.ManagedResource) bool {
+	for _, res := range resources {
+		if res.Phase != apiv1alpha1.Ready {
+			return false
+		}
+	}
+	return true
+}
+
+// tenantNamespace computes the namespace on the platform cluster that belongs to the given tenant obj.
+func tenantNamespace(obj apiv1alpha1.ExternalSecretsOperator) (string, error) {
+	res, err := controller.K8sNameUUID(obj.Namespace, obj.Name)
+	if err != nil {
+		return res, fmt.Errorf("error retrieving tenant namespace on platform cluster: %w", err)
+	}
+	return "mcp--" + res, nil
 }

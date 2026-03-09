@@ -1,9 +1,15 @@
 package e2e
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"os"
+	"os/exec"
 	"testing"
+
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/e2e-framework/pkg/env"
@@ -34,14 +40,39 @@ func TestMain(m *testing.M) {
 		ServiceProviders: []providers.ServiceProviderSetup{
 			{
 				Name:               "externalsecretsoperator",
-				Image:              "ghcr.io/openmcp-project/images/service-provider-external-secrets:0.0.1",
+				Image:              "ghcr.io/openmcp-project/images/service-provider-external-secrets:0.0.1-linux-arm64",
 				LoadImageToCluster: true,
 			},
 		},
 	}
 	testenv = env.NewWithConfig(envconf.New().WithNamespace(openmcp.Namespace))
 	openmcp.Bootstrap(testenv)
+	testenv.Setup(installFlux, registerFluxSchemes)
 	os.Exit(testenv.Run(m))
+}
+
+func installFlux(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+	args := []string{"install"}
+	if kubeconfig := cfg.KubeconfigFile(); kubeconfig != "" {
+		args = append(args, "--kubeconfig", kubeconfig)
+	}
+	out, err := exec.Command("flux", args...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("flux install failed: %w: %s", err, string(out))
+	}
+	klog.Infof("flux install output: %s", string(out))
+	return ctx, nil
+}
+
+func registerFluxSchemes(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+	scheme := cfg.Client().Resources().GetScheme()
+	if err := helmv2.AddToScheme(scheme); err != nil {
+		return ctx, fmt.Errorf("failed to register helm-controller scheme: %w", err)
+	}
+	if err := sourcev1.AddToScheme(scheme); err != nil {
+		return ctx, fmt.Errorf("failed to register source-controller scheme: %w", err)
+	}
+	return ctx, nil
 }
 
 func initLogging() {

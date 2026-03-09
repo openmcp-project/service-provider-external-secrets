@@ -57,6 +57,9 @@ import (
 
 	externalsecretsoperatorsv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/internal/controller"
+
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -80,6 +83,8 @@ func initPlatformScheme() {
 	utilruntime.Must(externalsecretsoperatorsv1alpha1.AddToScheme(platformScheme))
 	utilruntime.Must(clustersv1alpha1.AddToScheme(platformScheme))
 	utilruntime.Must(providerv1alpha1.AddToScheme(platformScheme))
+	utilruntime.Must(sourcev1.AddToScheme(platformScheme))
+	utilruntime.Must(helmv2.AddToScheme(platformScheme))
 }
 
 func initOnboardingScheme() {

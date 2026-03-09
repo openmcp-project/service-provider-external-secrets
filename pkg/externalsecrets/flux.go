@@ -1,0 +1,72 @@
+package externalsecrets
+
+import (
+	"context"
+
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	"github.com/fluxcd/pkg/apis/meta"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
+)
+
+// Configure Flux OCIRepo and HelmRelease
+func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, cc spruntime.ClusterContext) {
+	ociRepo := NewManagedObject(&sourcev1.OCIRepository{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      obj.Name,
+			Namespace: namespace,
+		},
+	}, ManagedObjectContext{
+		ReconcileFunc: func(_ context.Context, o client.Object) error {
+			ociRepo := o.(*sourcev1.OCIRepository)
+			ociRepo.Spec = sourcev1.OCIRepositorySpec{
+				Interval: metav1.Duration{Duration: pc.PollInterval()},
+				URL:      pc.Spec.OCIRepositoryURL,
+				Reference: &sourcev1.OCIRepositoryRef{
+					Tag: obj.Spec.Version,
+				},
+			}
+			return nil
+		},
+		DependsOn:      []ManagedObject{},
+		DeletionPolicy: Delete,
+		StatusFunc:     SimpleStatus,
+	})
+	cluster.AddObject(ociRepo)
+
+	helmRelease := NewManagedObject(&helmv2.HelmRelease{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      obj.Name,
+			Namespace: namespace,
+		},
+	}, ManagedObjectContext{
+		ReconcileFunc: func(_ context.Context, o client.Object) error {
+			helmRelease := o.(*helmv2.HelmRelease)
+			helmRelease.Spec = helmv2.HelmReleaseSpec{
+				Interval: metav1.Duration{Duration: pc.PollInterval()},
+				ChartRef: &helmv2.CrossNamespaceSourceReference{
+					Kind:      "OCIRepository",
+					Name:      obj.Name,
+					Namespace: namespace,
+				},
+				KubeConfig: &meta.KubeConfigReference{
+					SecretRef: &meta.SecretKeyReference{
+						Name: cc.MCPAccessSecretKey.Name,
+						Key:  "kubeconfig",
+					},
+				},
+			}
+			return nil
+		},
+		DependsOn: []ManagedObject{
+			ociRepo,
+		},
+		DeletionPolicy: Delete,
+		StatusFunc:     SimpleStatus,
+	})
+	cluster.AddObject(helmRelease)
+}
