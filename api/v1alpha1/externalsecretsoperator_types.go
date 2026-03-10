@@ -38,6 +38,7 @@ const (
 	Unknown     InstancePhase = "Unknown"
 
 	ManagedControlPlane ResourceLocation = "ManagedControlPlane"
+	PlatformCluster     ResourceLocation = "PlatformCluster"
 	WorkloadCluter      ResourceLocation = "WorkloadCluster"
 )
 

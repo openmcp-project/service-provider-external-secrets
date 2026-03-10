@@ -95,9 +95,9 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (externalsecrets.Manager, error) {
 	tenantNamespace, err := tenantNamespace(*obj)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine stable namespace for OCM instance: %w", err)
+		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
 	}
-	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.ManagedControlPlane)
+	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.PlatformCluster)
 	externalsecrets.Configure(platformCluster, tenantNamespace, obj, pc, clusters)
 	mgr := externalsecrets.NewManager()
 	mgr.AddCluster(platformCluster)

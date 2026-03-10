@@ -9,9 +9,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/fluxcd/pkg/runtime/conditions"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
+
+const namespaceExternalSecrets = "external-secrets"
 
 // Configure Flux OCIRepo and HelmRelease
 func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, cc spruntime.ClusterContext) {
@@ -34,7 +38,7 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 		},
 		DependsOn:      []ManagedObject{},
 		DeletionPolicy: Delete,
-		StatusFunc:     SimpleStatus,
+		StatusFunc:     FluxStatus,
 	})
 	cluster.AddObject(ociRepo)
 
@@ -59,6 +63,14 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 						Key:  "kubeconfig",
 					},
 				},
+				Install: &helmv2.Install{
+					Remediation: &helmv2.InstallRemediation{
+						Retries: 3,
+					},
+					CreateNamespace: true,
+				},
+				TargetNamespace:  namespaceExternalSecrets,
+				StorageNamespace: namespaceExternalSecrets,
 			}
 			return nil
 		},
@@ -66,7 +78,31 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 			ociRepo,
 		},
 		DeletionPolicy: Delete,
-		StatusFunc:     SimpleStatus,
+		StatusFunc:     FluxStatus,
 	})
 	cluster.AddObject(helmRelease)
+}
+
+// FluxStatus indicates whether the given object is in phase terminating, pending or ready.
+func FluxStatus(o client.Object, rl apiv1alpha1.ResourceLocation) Status {
+	fluxObject := o.(conditions.Getter)
+	if !o.GetDeletionTimestamp().IsZero() {
+		return Status{
+			Phase:    apiv1alpha1.Terminating,
+			Message:  "Resource is terminating.",
+			Location: rl,
+		}
+	}
+	if conditions.IsReady(fluxObject) {
+		return Status{
+			Phase:    apiv1alpha1.Ready,
+			Message:  "Resource is ready",
+			Location: rl,
+		}
+	}
+	return Status{
+		Phase:    apiv1alpha1.Pending,
+		Message:  "Resource is not ready",
+		Location: rl,
+	}
 }
