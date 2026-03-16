@@ -74,9 +74,7 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 			}
 			return nil
 		},
-		DependsOn: []ManagedObject{
-			ociRepo,
-		},
+		DependsOn:      []ManagedObject{},
 		DeletionPolicy: Delete,
 		StatusFunc:     FluxStatus,
 	})

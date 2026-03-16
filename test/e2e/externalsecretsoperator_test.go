@@ -6,19 +6,23 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/e2e-framework/klient/k8s"
 	"sigs.k8s.io/e2e-framework/klient/wait"
+	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
 	"github.com/openmcp-project/openmcp-testing/pkg/clusterutils"
-	"github.com/openmcp-project/openmcp-testing/pkg/conditions"
+	openmcpconditions "github.com/openmcp-project/openmcp-testing/pkg/conditions"
 	"github.com/openmcp-project/openmcp-testing/pkg/providers"
 	"github.com/openmcp-project/openmcp-testing/pkg/resources"
 )
 
 func TestServiceProvider(t *testing.T) {
 	var onboardingList unstructured.UnstructuredList
+	var mcpList unstructured.UnstructuredList
 	basicProviderTest := features.New("provider test").
 		Setup(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 			if _, err := resources.CreateObjectsFromDir(ctx, c, "platform"); err != nil {
@@ -40,7 +44,7 @@ func TestServiceProvider(t *testing.T) {
 					return ctx
 				}
 				for _, obj := range objList.Items {
-					if err := wait.For(conditions.Match(&obj, onboardingConfig, "Ready", corev1.ConditionTrue)); err != nil {
+					if err := wait.For(openmcpconditions.Match(&obj, onboardingConfig, "Ready", corev1.ConditionTrue)); err != nil {
 						t.Error(err)
 					}
 				}
@@ -48,7 +52,58 @@ func TestServiceProvider(t *testing.T) {
 				return ctx
 			},
 		).
-		Assess("verify domain objects can be created", providers.ImportDomainAPIs("mcp")).
+		Assess("domain objects can be created", func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+			mcpConfig, err := clusterutils.McpConfig()
+			if err != nil {
+				return ctx
+			}
+			objList, err := resources.CreateObjectsFromDir(ctx, mcpConfig, "mcp")
+			if err != nil {
+				t.Errorf("failed to create mcp cluster objects: %v", err)
+				return ctx
+			}
+			if err := wait.For(conditions.New(mcpConfig.Client().Resources()).ResourcesFound(objList)); err != nil {
+				t.Error(err)
+				return ctx
+			}
+			objList.DeepCopyInto(&mcpList)
+			return ctx
+		},
+		).
+		Assess("secret created from fake secret store", func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+			mcp, err := clusterutils.McpConfig()
+			if err != nil {
+				t.Error(err)
+				return ctx
+			}
+			sec := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "secret-to-be-created",
+					Namespace: corev1.NamespaceDefault,
+				},
+			}
+			if err := wait.For(conditions.New(mcp.Client().Resources()).ResourceMatch(sec, func(object k8s.Object) bool {
+				secret := object.(*corev1.Secret)
+				data := secret.Data
+				return string(data["foo_bar"]) == "HELLO1" && string(data["john"]) == "doe"
+			})); err != nil {
+				t.Error(err)
+			}
+			return ctx
+		}).
+		Teardown(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+			mcpConfig, err := clusterutils.McpConfig()
+			if err != nil {
+				t.Error(err)
+				return ctx
+			}
+			for _, obj := range mcpList.Items {
+				if err := resources.DeleteObject(ctx, mcpConfig, &obj, wait.WithTimeout(time.Minute)); err != nil {
+					t.Errorf("failed to delete mcp object: %v", err)
+				}
+			}
+			return ctx
+		}).
 		Teardown(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 			onboardingConfig, err := clusterutils.OnboardingConfig()
 			if err != nil {
