@@ -20,6 +20,8 @@ import (
 	"github.com/openmcp-project/openmcp-testing/pkg/resources"
 )
 
+const mcpName = "test-mcp"
+
 func TestServiceProvider(t *testing.T) {
 	var onboardingList unstructured.UnstructuredList
 	var mcpList unstructured.UnstructuredList
@@ -30,7 +32,7 @@ func TestServiceProvider(t *testing.T) {
 			}
 			return ctx
 		}).
-		Setup(providers.CreateMCP("test-mcp")).
+		Setup(providers.CreateMCP(mcpName)).
 		Assess("verify service can be successfully consumed",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 				onboardingConfig, err := clusterutils.OnboardingConfig()
@@ -53,16 +55,16 @@ func TestServiceProvider(t *testing.T) {
 			},
 		).
 		Assess("domain objects can be created", func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
-			mcpConfig, err := clusterutils.McpConfig()
+			mcp, err := clusterutils.MCPConfig(ctx, c, mcpName)
 			if err != nil {
 				return ctx
 			}
-			objList, err := resources.CreateObjectsFromDir(ctx, mcpConfig, "mcp")
+			objList, err := resources.CreateObjectsFromDir(ctx, mcp, "mcp")
 			if err != nil {
 				t.Errorf("failed to create mcp cluster objects: %v", err)
 				return ctx
 			}
-			if err := wait.For(conditions.New(mcpConfig.Client().Resources()).ResourcesFound(objList)); err != nil {
+			if err := wait.For(conditions.New(mcp.Client().Resources()).ResourcesFound(objList)); err != nil {
 				t.Error(err)
 				return ctx
 			}
@@ -71,7 +73,7 @@ func TestServiceProvider(t *testing.T) {
 		},
 		).
 		Assess("secret created from fake secret store", func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
-			mcp, err := clusterutils.McpConfig()
+			mcp, err := clusterutils.MCPConfig(ctx, c, mcpName)
 			if err != nil {
 				t.Error(err)
 				return ctx
@@ -92,13 +94,13 @@ func TestServiceProvider(t *testing.T) {
 			return ctx
 		}).
 		Teardown(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
-			mcpConfig, err := clusterutils.McpConfig()
+			mcp, err := clusterutils.MCPConfig(ctx, c, mcpName)
 			if err != nil {
 				t.Error(err)
 				return ctx
 			}
 			for _, obj := range mcpList.Items {
-				if err := resources.DeleteObject(ctx, mcpConfig, &obj, wait.WithTimeout(time.Minute)); err != nil {
+				if err := resources.DeleteObject(ctx, mcp, &obj, wait.WithTimeout(time.Minute)); err != nil {
 					t.Errorf("failed to delete mcp object: %v", err)
 				}
 			}
@@ -117,6 +119,6 @@ func TestServiceProvider(t *testing.T) {
 			}
 			return ctx
 		}).
-		Teardown(providers.DeleteMCP("test-mcp", wait.WithTimeout(5*time.Minute)))
+		Teardown(providers.DeleteMCP(mcpName, wait.WithTimeout(5*time.Minute)))
 	testenv.Test(t, basicProviderTest.Feature())
 }
