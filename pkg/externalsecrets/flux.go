@@ -26,7 +26,10 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 		},
 	}, ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
-			ociRepo := o.(*sourcev1.OCIRepository)
+			ociRepo, ok := o.(*sourcev1.OCIRepository)
+			if !ok {
+				return fmt.Errorf("expected *sourcev1.OCIRepository, got %T", o)
+			}
 			ociRepo.Spec = sourcev1.OCIRepositorySpec{
 				Interval: metav1.Duration{Duration: pc.PollInterval()},
 				URL:      pc.Spec.OCIRepositoryURL,
