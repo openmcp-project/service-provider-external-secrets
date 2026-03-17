@@ -52,7 +52,10 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 		},
 	}, ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
-			helmRelease := o.(*helmv2.HelmRelease)
+			helmRelease, ok := o.(*helmv2.HelmRelease)
+			if !ok {
+				return fmt.Errorf("expected *helmv2.HelmRelease, got %T", o)
+			}
 			helmRelease.Spec = helmv2.HelmReleaseSpec{
 				Interval: metav1.Duration{Duration: pc.PollInterval()},
 				ChartRef: &helmv2.CrossNamespaceSourceReference{
