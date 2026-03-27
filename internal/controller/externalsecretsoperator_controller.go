@@ -104,14 +104,29 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.PlatformCluster)
-
 	externalSecretsNamespace := namespaceExternalSecrets
 	if helmValues.NamespaceOverride != "" {
 		externalSecretsNamespace = helmValues.NamespaceOverride
 	}
-
 	mcpCluster := externalsecrets.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, externalsecrets.ManagedControlPlane)
-	externalsecrets.SyncPullSecrets(mcpCluster, r.PlatformCluster, *helmValues, r.PodNamespace)
+	// sync image pull secrets from platform cluster to mcp
+	externalsecrets.SyncPullSecrets(mcpCluster, helmValues.ImagePullSecrets, externalsecrets.SecretCopyConfig{
+		SourceClient:    platformCluster.GetClient(),
+		SourceNamespace: r.PodNamespace,
+		TargetNamespace: externalSecretsNamespace,
+	})
+	// sync chart pull secrets within platform cluster from pod namespace to tenant namespace
+	if pc.Spec.ChartPullSecret != nil {
+		externalsecrets.SyncPullSecrets(platformCluster, []corev1.LocalObjectReference{
+			{
+				Name: *pc.Spec.ChartPullSecret,
+			},
+		}, externalsecrets.SecretCopyConfig{
+			SourceClient:    platformCluster.GetClient(),
+			SourceNamespace: r.PodNamespace,
+			TargetNamespace: tenantNamespace,
+		})
+	}
 	externalsecrets.ConfigureFlux(platformCluster, externalSecretsNamespace, obj, pc, clusters)
 	mgr := externalsecrets.NewManager()
 	mgr.AddCluster(mcpCluster)
