@@ -16,14 +16,12 @@ import (
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
-const namespaceExternalSecrets = "external-secrets"
-
-// Configure Flux OCIRepo and HelmRelease
-func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, cc spruntime.ClusterContext) {
+// ConfigureFlux configures OCIRepo and HelmRelease
+func ConfigureFlux(cluster ManagedCluster, externalSecretsNamespace string, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, cc spruntime.ClusterContext) {
 	ociRepo := NewManagedObject(&sourcev1.OCIRepository{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      obj.Name,
-			Namespace: namespace,
+			Namespace: cluster.GetDefaultNamespace(),
 		},
 	}, ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
@@ -33,10 +31,15 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 			}
 			ociRepo.Spec = sourcev1.OCIRepositorySpec{
 				Interval: metav1.Duration{Duration: pc.PollInterval()},
-				URL:      pc.Spec.OCIRepositoryURL,
+				URL:      *pc.Spec.ChartURL,
 				Reference: &sourcev1.OCIRepositoryRef{
 					Tag: obj.Spec.Version,
 				},
+			}
+			if pc.Spec.ChartPullSecret != nil {
+				ociRepo.Spec.SecretRef = &meta.LocalObjectReference{
+					Name: *pc.Spec.ChartPullSecret,
+				}
 			}
 			return nil
 		},
@@ -49,7 +52,7 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 	helmRelease := NewManagedObject(&helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      obj.Name,
-			Namespace: namespace,
+			Namespace: cluster.GetDefaultNamespace(),
 		},
 	}, ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
@@ -62,7 +65,7 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 				ChartRef: &helmv2.CrossNamespaceSourceReference{
 					Kind:      "OCIRepository",
 					Name:      obj.Name,
-					Namespace: namespace,
+					Namespace: cluster.GetDefaultNamespace(),
 				},
 				KubeConfig: &meta.KubeConfigReference{
 					SecretRef: &meta.SecretKeyReference{
@@ -76,8 +79,9 @@ func Configure(cluster ManagedCluster, namespace string, obj *apiv1alpha1.Extern
 					},
 					CreateNamespace: true,
 				},
-				TargetNamespace:  namespaceExternalSecrets,
-				StorageNamespace: namespaceExternalSecrets,
+				Values:           pc.Spec.HelmValues,
+				TargetNamespace:  externalSecretsNamespace,
+				StorageNamespace: externalSecretsNamespace,
 			}
 			return nil
 		},

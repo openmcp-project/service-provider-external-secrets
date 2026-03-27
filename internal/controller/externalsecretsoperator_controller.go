@@ -36,6 +36,8 @@ import (
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
+const namespaceExternalSecrets = "external-secrets"
+
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
 	// OnboardingCluster is the cluster where this controller watches ExternalSecretsOperator resources and reacts to their changes.
@@ -97,9 +99,22 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
 	}
+	helmValues, err := externalsecrets.ExtractHelmValues(pc.Spec.HelmValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract helm values: %w", err)
+	}
 	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.PlatformCluster)
-	externalsecrets.Configure(platformCluster, tenantNamespace, obj, pc, clusters)
+
+	externalSecretsNamespace := namespaceExternalSecrets
+	if helmValues.NamespaceOverride != "" {
+		externalSecretsNamespace = helmValues.NamespaceOverride
+	}
+
+	mcpCluster := externalsecrets.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, externalsecrets.ManagedControlPlane)
+	externalsecrets.SyncPullSecrets(mcpCluster, r.PlatformCluster, *helmValues, r.PodNamespace)
+	externalsecrets.ConfigureFlux(platformCluster, externalSecretsNamespace, obj, pc, clusters)
 	mgr := externalsecrets.NewManager()
+	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
 	return mgr, nil
 }
