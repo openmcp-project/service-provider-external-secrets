@@ -29,12 +29,14 @@ func TestExtractHelmValues(t *testing.T) {
 		{
 			name: "Extract ImagePullSecrets",
 			values: &apiextensionsv1.JSON{
-				Raw: []byte(`{"imagePullSecrets": [{"name": "test"}]}`),
+				Raw: []byte(`{"global": {"imagePullSecrets": [{"name": "test"}]}}`),
 			},
 			want: &HelmValues{
-				ImagePullSecrets: []corev1.LocalObjectReference{
-					{
-						Name: "test",
+				Global: Global{
+					ImagePullSecrets: []corev1.LocalObjectReference{
+						{
+							Name: "test",
+						},
 					},
 				},
 			},

@@ -81,7 +81,7 @@ spec:
 | `spec.pollInterval` | duration | periodic reconcile interval to prevent drift of managed MCP resources |
 | `spec.values` | object | Custom Helm values for the External Secrets Operator deployment |
 
-For private and air-gapped environments, image locations and pull secrets can be adjusted via `spec.values` (see the example above).
+For private and air-gapped environments, image locations and pull secrets can be adjusted via `spec.values` global settings (see the example above).
 Pull secrets will be synced to each tenant control plane.
 
 ## Development Tasks

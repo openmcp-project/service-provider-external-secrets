@@ -110,7 +110,7 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	}
 	mcpCluster := externalsecrets.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, externalsecrets.ManagedControlPlane)
 	// sync image pull secrets from platform cluster to mcp
-	externalsecrets.ManagePullSecrets(mcpCluster, helmValues.ImagePullSecrets, externalsecrets.SecretCopyConfig{
+	externalsecrets.ManagePullSecrets(mcpCluster, helmValues.Global.ImagePullSecrets, externalsecrets.SecretCopyConfig{
 		SourceClient:    platformCluster.GetClient(),
 		SourceNamespace: r.PodNamespace,
 		TargetNamespace: externalSecretsNamespace,
