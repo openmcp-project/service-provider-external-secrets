@@ -35,6 +35,14 @@ func ConfigureFlux(cluster ManagedCluster, externalSecretsNamespace string, obj 
 				Reference: &sourcev1.OCIRepositoryRef{
 					Tag: obj.Spec.Version,
 				},
+				// required to always select the correct OCI layer
+				// this mitigates non-deterministic layer ordering across different eso versions
+				// that prevented the OCIRepository from getting ready for some eso versions
+				// https://fluxcd.io/flux/components/source/ocirepositories/#layer-selector
+				LayerSelector: &sourcev1.OCILayerSelector{
+					MediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip",
+					Operation: "extract",
+				},
 			}
 			if pc.Spec.ChartPullSecret != nil {
 				ociRepo.Spec.SecretRef = &meta.LocalObjectReference{
