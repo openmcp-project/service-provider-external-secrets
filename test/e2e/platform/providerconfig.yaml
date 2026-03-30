@@ -4,11 +4,11 @@ metadata:
   name: externalsecretsoperator
 spec:
   pollInterval: 1m
-  # chartURL: "oci://somewhere-else"
-  chartPullSecret: test
+  chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
+  chartPullSecret: privateregcred
   helmValues:
-    namespaceOverride: "eso-system"
-    imagePullSecrets:
-      - name: test
-    # image:
-    #   repository: "somewhere-else"
+    namespaceOverride: eso-system
+    global:
+      repository: ghcr.io/external-secrets/external-secrets
+      imagePullSecrets:
+        - name: privateregcred

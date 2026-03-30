@@ -2,48 +2,98 @@
 
 # Service Provider External Secrets Operator
 
-## About this project
+A service provider for managing [External Secrets Operator](https://external-secrets.io/) within [Open Control Plane](https://openmcp-project.github.io/docs/) environments.
 
-A template for building @openmcp-project Service Providers
+## Architecture Overview
 
-## Requirements and Setup
+Service Provider External Secrets runs on the platform cluster of an [Open Control Plane installation](https://openmcp-project.github.io/docs/operators/overview). It reconciles `ExternalSecretOperator` resources and installs the [External Secrets Operator](https://external-secrets.io/) to the control plane of the requesting tenant (see [Service Provider Deployment Model](https://openmcp-project.github.io/docs/developers/serviceprovider/design#deployment-model) for more information).
 
-1. Create a new repository based on this template.
-2. Execute the template to create a new `ServiceProvider`.
-3. Test your `ServiceProvider`.
+```mermaid
+flowchart LR
 
-The template includes a basic code generation command that lets you create a `ServiceProvider` for your Go module, API kind and group.
-You can also choose to add sample code to get a fully functional `ServiceProvider`.
+  subgraph PC[Platform Cluster]
+      speso[Service Provider External-Secrets]
+  end
 
-For a complete usage overview with the default settings, run:
+  subgraph OC[Onboarding Cluster]
+    spapi([ExternalSecretsOperator])
+    mcpapi([ManagedControlPlane])
 
-```shell
-go run ./cmd/template -h
+    spapi -- references --> mcpapi
+  end
+
+  subgraph mcp[ManagedControlPlane]
+    esocontroller[External Secrets Controller]
+    esocrd([External Secret CRDs])
+
+    esocontroller -- reconciles --> esocrd
+  end
+
+  speso -- reconciles --> spapi
+  speso -- installs --> esocontroller
+  mcpapi -- represents --> mcp
 ```
 
-Then execute the template, for example:
+## API Reference
 
-```shell
-go run ./cmd/template -module github.com/yourorg/yourrepo -kind YourKind -group yourgroup
+### ExternalSecretsOperator
+
+The `ExternalSecretsOperator` resource represents an External Secret Operator installation for a `ManagedControlPlane`.
+
+```yaml
+apiVersion: external-secrets.services.openmcp.cloud/v1alpha1
+kind: ExternalSecretsOperator
+metadata:
+  name: mcp-tenant-a
+spec:
+  version: "2.2.0"
 ```
 
-Running End-to-End tests:
+| Field | Type | Description |
+|-------|------|-------------|
+| `spec.version` | string | The version of External Secrets Operator to install |
 
-```shell
-task test-e2e
+### ProviderConfig
+
+The `ProviderConfig` resource configures global settings for all External Secret Operator deployments.
+
+```yaml
+apiVersion: external-secrets.services.openmcp.cloud/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: externalsecretsoperator
+spec:
+  pollInterval: 1m
+  chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
+  chartPullSecret: privateregcred
+  helmValues:
+    namespaceOverride: eso-system
+    global:
+      repository: ghcr.io/external-secrets/external-secrets
+      imagePullSecrets:
+        - name: privateregcred
 ```
 
-## CLI Flags
+| Field | Type | Description |
+|-------|------|-------------|
+| `spec.chartUrl` | string | OCI registry URL for the External Secrets Operator Helm chart |
+| `spec.chartPullSecret` | string | Secret name for chart registry authentication |
+| `spec.pollInterval` | duration | periodic reconcile interval to prevent drift of managed MCP resources |
+| `spec.values` | object | Custom Helm values for the External Secrets Operator deployment |
 
-### Template Generator Flags
+For private and air-gapped environments, image locations and pull secrets can be adjusted via `spec.values` (see the example above).
+Pull secrets will be synced to each tenant control plane.
 
-The template generator (`cmd/template`) supports the following flags:
+## Development Tasks
 
-- `-module`: Go module path (default: `github.com/openmcp-project/service-provider-template`)
-- `-kind`: GVK kind name (default: `FooService`)
-- `-group`: GVK group prefix, will be suffixed with `services.openmcp.cloud` (default: `foo`)
-- `-v`: Generate with sample code (default: `false`)
-- `-w`: Generate a service provider that reconciles its `DomainServiceAPI` on the [WorkloadCluster](https://openmcp-project.github.io/docs/about/design/service-provider#deployment-model) (default: `false`)
+| Command | Description |
+|---------|-------------|
+| `task build` | Build the binary |
+| `task build:img:build-test` | Build the container image |
+| `task test` | Run unit tests |
+| `task test-e2e` | Run end-to-end tests |
+| `task generate` | Generate CRDs and code after API changes |
+| `task validate` | Run linters and formatters |
 
 ### Service Provider Runtime Flags
 
@@ -59,6 +109,12 @@ The generated service provider supports the following runtime flags:
 - `--enable-http2`: Enable HTTP/2 for metrics and webhook servers (default: `false`)
 
 For a complete list of available flags, run the generated binary with `-h` or `--help`.
+
+## Additional Resources
+
+- [External Secrets Operator Guides](https://external-secrets.io/latest/guides/introduction/)
+- [External Secrets Operator Components Overview](https://external-secrets.io/latest/api/components/)
+- [Open Control Plane Docs](https://openmcp-project.github.io/docs/)
 
 ## Support, Feedback, Contributing
 
