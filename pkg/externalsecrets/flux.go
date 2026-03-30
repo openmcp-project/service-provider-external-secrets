@@ -93,7 +93,7 @@ func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string
 			}
 			return nil
 		},
-		DependsOn:      []ManagedObject{},
+		DependsOn:      []ManagedObject{ociRepo},
 		DeletionPolicy: Delete,
 		StatusFunc:     FluxStatus,
 	})
