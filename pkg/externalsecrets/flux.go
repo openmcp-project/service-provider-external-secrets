@@ -16,8 +16,8 @@ import (
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
-// ConfigureFlux configures OCIRepo and HelmRelease
-func ConfigureFlux(cluster ManagedCluster, externalSecretsNamespace string, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, cc spruntime.ClusterContext) {
+// ManageFluxResources configures OCIRepo and HelmRelease
+func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, cc spruntime.ClusterContext) {
 	ociRepo := NewManagedObject(&sourcev1.OCIRepository{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      obj.Name,

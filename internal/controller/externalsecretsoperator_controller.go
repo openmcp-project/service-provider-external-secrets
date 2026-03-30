@@ -110,14 +110,14 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	}
 	mcpCluster := externalsecrets.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, externalsecrets.ManagedControlPlane)
 	// sync image pull secrets from platform cluster to mcp
-	externalsecrets.SyncPullSecrets(mcpCluster, helmValues.ImagePullSecrets, externalsecrets.SecretCopyConfig{
+	externalsecrets.ManagePullSecrets(mcpCluster, helmValues.ImagePullSecrets, externalsecrets.SecretCopyConfig{
 		SourceClient:    platformCluster.GetClient(),
 		SourceNamespace: r.PodNamespace,
 		TargetNamespace: externalSecretsNamespace,
 	})
 	// sync chart pull secrets within platform cluster from pod namespace to tenant namespace
 	if pc.Spec.ChartPullSecret != nil {
-		externalsecrets.SyncPullSecrets(platformCluster, []corev1.LocalObjectReference{
+		externalsecrets.ManagePullSecrets(platformCluster, []corev1.LocalObjectReference{
 			{
 				Name: *pc.Spec.ChartPullSecret,
 			},
@@ -127,7 +127,7 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 			TargetNamespace: tenantNamespace,
 		})
 	}
-	externalsecrets.ConfigureFlux(platformCluster, externalSecretsNamespace, obj, pc, clusters)
+	externalsecrets.ManageFluxResources(platformCluster, externalSecretsNamespace, obj, pc, clusters)
 	mgr := externalsecrets.NewManager()
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)

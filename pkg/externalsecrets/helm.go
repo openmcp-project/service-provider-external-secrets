@@ -9,8 +9,8 @@ import (
 
 // HelmValues define the helm values that are explicitly processed during reconciliation
 type HelmValues struct {
-	NamespaceOverride string `json:"namespaceOverride,omitempty"`
-	ImagePullSecrets  []corev1.LocalObjectReference
+	NamespaceOverride string                        `json:"namespaceOverride,omitempty"`
+	ImagePullSecrets  []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 }
 
 // ExtractHelmValues extract helm values required for processing

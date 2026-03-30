@@ -19,13 +19,13 @@ type SecretCopyConfig struct {
 	TargetNamespace string
 }
 
-// SyncPullSecrets syncs every image pull secret the to cluster
-func SyncPullSecrets(targetCluster ManagedCluster, imagePullSecrets []corev1.LocalObjectReference, config SecretCopyConfig) {
+// ManagePullSecrets syncs every image pull secret the to cluster
+func ManagePullSecrets(targetCluster ManagedCluster, imagePullSecrets []corev1.LocalObjectReference, config SecretCopyConfig) {
 	for _, pullSecret := range imagePullSecrets {
 		secret := NewManagedObject(&corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      pullSecret.Name,
-				Namespace: targetCluster.GetDefaultNamespace(),
+				Namespace: config.TargetNamespace,
 			},
 		}, ManagedObjectContext{
 			ReconcileFunc: func(ctx context.Context, o client.Object) error {
