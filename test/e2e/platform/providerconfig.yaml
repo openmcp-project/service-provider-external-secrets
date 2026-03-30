@@ -4,3 +4,11 @@ metadata:
   name: externalsecretsoperator
 spec:
   pollInterval: 1m
+  # chartURL: "oci://somewhere-else"
+  chartPullSecret: test
+  helmValues:
+    namespaceOverride: "eso-system"
+    imagePullSecrets:
+      - name: test
+    # image:
+    #   repository: "somewhere-else"
