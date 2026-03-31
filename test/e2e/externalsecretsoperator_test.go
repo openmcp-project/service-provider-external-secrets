@@ -2,12 +2,14 @@ package e2e
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
 	"sigs.k8s.io/e2e-framework/klient/wait"
 	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
@@ -57,6 +59,9 @@ func TestServiceProvider(t *testing.T) {
 				return ctx
 			},
 		).
+		Assess("Platform Cluster: chart pull secret sync to tenant namespaces", chartSecretSynced("privateregcred")).
+		Assess("MCP A: image pull secrets are synced", imagePullSecretSynced(mcpA, client.ObjectKey{Name: "privateregcred", Namespace: "eso-system"})).
+		Assess("MCP B: image pull secrets are synced", imagePullSecretSynced(mcpB, client.ObjectKey{Name: "privateregcred", Namespace: "eso-system"})).
 		Assess("MCP A: domain objects can be created", createSecretStoreAndExternalSecret(mcpA, &mcpAObjects)).
 		Assess("MCP B: domain objects can be created", createSecretStoreAndExternalSecret(mcpB, &mcpBObjects)).
 		Assess("MCP A: secret created from fake secret store", validateExternalSecret(mcpA)).
@@ -136,6 +141,58 @@ func cleanupMCPDomainObjects(mcpName string, mcpList *unstructured.UnstructuredL
 			if err := resources.DeleteObject(ctx, mcp, &obj, wait.WithTimeout(time.Minute)); err != nil {
 				t.Errorf("failed to delete mcp object: %v", err)
 			}
+		}
+		return ctx
+	}
+}
+
+// verify given secret exists on mcp
+func imagePullSecretSynced(mcpName string, secret client.ObjectKey) features.Func {
+	return func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+		mcp, err := clusterutils.MCPConfig(ctx, c, mcpName)
+		if err != nil {
+			t.Error(err)
+			return ctx
+		}
+		secList := &corev1.SecretList{
+			Items: []corev1.Secret{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      secret.Name,
+						Namespace: secret.Namespace,
+					},
+				},
+			},
+		}
+		if err := wait.For(conditions.New(mcp.Client().Resources()).ResourcesFound(secList)); err != nil {
+			t.Error(err)
+		}
+		return ctx
+	}
+}
+
+// verify given secret exists in every tenant namespace on the platform cluster
+func chartSecretSynced(secretName string) features.Func {
+	return func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+		secList := &corev1.SecretList{}
+		namespaces := &corev1.NamespaceList{}
+		if err := c.Client().Resources().List(ctx, namespaces); err != nil {
+			t.Error(err)
+			return ctx
+		}
+		for _, ns := range namespaces.Items {
+			if !strings.HasPrefix(ns.Name, "mcp--") {
+				continue
+			}
+			secList.Items = append(secList.Items, corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: ns.Name,
+				},
+			})
+		}
+		if err := wait.For(conditions.New(c.Client().Resources()).ResourcesFound(secList)); err != nil {
+			t.Error(err)
 		}
 		return ctx
 	}
