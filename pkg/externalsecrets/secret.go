@@ -2,6 +2,7 @@ package externalsecrets
 
 import (
 	"context"
+	"fmt"
 
 	openmcpresources "github.com/openmcp-project/controller-utils/pkg/resources"
 	corev1 "k8s.io/api/core/v1"
@@ -29,7 +30,10 @@ func ManagePullSecrets(targetCluster ManagedCluster, imagePullSecrets []corev1.L
 			},
 		}, ManagedObjectContext{
 			ReconcileFunc: func(ctx context.Context, o client.Object) error {
-				oSecret := o.(*corev1.Secret)
+				oSecret, ok := o.(*corev1.Secret)
+				if !ok {
+					return fmt.Errorf("expected *corev1.Secret, got %T", o)
+				}
 				sourceSecret := &corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      pullSecret.Name,

@@ -76,12 +76,12 @@ spec:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spec.chartUrl` | string | OCI registry URL for the External Secrets Operator Helm chart |
+| `spec.chartURL` | string | OCI registry URL for the External Secrets Operator Helm chart |
 | `spec.chartPullSecret` | string | Secret name for chart registry authentication |
 | `spec.pollInterval` | duration | periodic reconcile interval to prevent drift of managed MCP resources |
-| `spec.values` | object | Custom Helm values for the External Secrets Operator deployment |
+| `spec.helmValues` | object | Custom Helm values for the External Secrets Operator deployment |
 
-For private and air-gapped environments, image locations and pull secrets can be adjusted via `spec.values` global settings (see the example above).
+For private and air-gapped environments, image locations and pull secrets can be adjusted via `spec.helmValues` global settings (see the example above).
 Pull secrets will be synced to each tenant control plane.
 
 ## Development Tasks

@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
-	"github.com/openmcp-project/controller-utils/pkg/controller"
+	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
@@ -95,7 +95,7 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 }
 
 func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (externalsecrets.Manager, error) {
-	tenantNamespace, err := tenantNamespace(*obj)
+	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
 	}
@@ -173,13 +173,4 @@ func allResourcesReady(resources []apiv1alpha1.ManagedResource) bool {
 		}
 	}
 	return true
-}
-
-// tenantNamespace computes the namespace on the platform cluster that belongs to the given tenant obj.
-func tenantNamespace(obj apiv1alpha1.ExternalSecretsOperator) (string, error) {
-	res, err := controller.K8sNameUUID(obj.Namespace, obj.Name)
-	if err != nil {
-		return res, fmt.Errorf("error retrieving tenant namespace on platform cluster: %w", err)
-	}
-	return "mcp--" + res, nil
 }

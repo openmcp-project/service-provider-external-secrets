@@ -39,7 +39,6 @@ const (
 
 	ManagedControlPlane ResourceLocation = "ManagedControlPlane"
 	PlatformCluster     ResourceLocation = "PlatformCluster"
-	WorkloadCluter      ResourceLocation = "WorkloadCluster"
 )
 
 // ExternalSecretsOperatorSpec defines the desired state of ExternalSecretsOperator

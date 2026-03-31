@@ -15,8 +15,6 @@ const (
 	OperationResultDeletionRequested controllerutil.OperationResult = "deletionRequested"
 	// OperationResultDeleted indicates that an object has been deleted
 	OperationResultDeleted controllerutil.OperationResult = "deleted"
-	// OperationResultOrphaned indicates that an object has been orphaned
-	OperationResultOrphaned controllerutil.OperationResult = OperationResultDeleted
 )
 
 type dependents map[ManagedObject][]dependency
@@ -88,7 +86,7 @@ func (m *managerImpl) reconcileObject(ctx context.Context, mc ManagedCluster, mo
 			return Result{
 				Object:          mo,
 				Cluster:         mc,
-				OperationResult: OperationResultOrphaned,
+				OperationResult: OperationResultDeleted,
 				Error:           nil,
 			}
 		}
