@@ -52,7 +52,7 @@ type ExternalSecretsOperatorSpec struct {
 type ExternalSecretsOperatorStatus struct {
 	commonapi.Status `json:",inline"`
 
-	// Resources managed by this velero instance
+	// Resources managed by this External Secrets Operator instance
 	// +optional
 	Resources []ManagedResource `json:"resources,omitempty"`
 }
