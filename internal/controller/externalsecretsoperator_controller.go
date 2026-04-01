@@ -1,0 +1,176 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
+
+	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
+)
+
+const namespaceExternalSecrets = "external-secrets"
+
+// ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
+type ExternalSecretsOperatorReconciler struct {
+	// OnboardingCluster is the cluster where this controller watches ExternalSecretsOperator resources and reacts to their changes.
+	OnboardingCluster *clusters.Cluster
+	// PlatformCluster is the cluster where this controller is deployed and configured.
+	PlatformCluster *clusters.Cluster
+	// PodNamespace is the namespace where this controller is deployed in.
+	PodNamespace string
+}
+
+// CreateOrUpdate is called on every add or update event
+func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
+	spruntime.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+	mgr, err := r.createObjectManager(obj, pc, clusters)
+	if err != nil {
+		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
+		return ctrl.Result{}, err
+	}
+	results := mgr.Apply(ctx)
+	managedResources, resultContainsErrors := resultsToResources(ctx, results)
+	obj.Status.Resources = managedResources
+	if allResourcesReady(managedResources) {
+		spruntime.StatusReady(obj)
+	}
+	if resultContainsErrors {
+		resultWithErrors := errors.New("resources contain reconcile errors")
+		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		return ctrl.Result{}, resultWithErrors
+	}
+	return ctrl.Result{}, nil
+}
+
+// Delete is called on every delete event
+func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
+	spruntime.StatusTerminating(obj)
+	mgr, err := r.createObjectManager(obj, pc, clusters)
+	if err != nil {
+		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
+		return ctrl.Result{}, err
+	}
+	results := mgr.Delete(ctx)
+	managedResources, resultContainsErrors := resultsToResources(ctx, results)
+	obj.Status.Resources = managedResources
+	if externalsecrets.AllDeleted(results) {
+		return ctrl.Result{}, nil
+	}
+	if resultContainsErrors {
+		resultWithErrors := errors.New("resources contain reconcile errors")
+		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		return ctrl.Result{}, resultWithErrors
+	}
+	return ctrl.Result{
+		RequeueAfter: time.Second * 5,
+	}, nil
+}
+
+func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (externalsecrets.Manager, error) {
+	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
+	}
+	helmValues, err := externalsecrets.ExtractHelmValues(pc.Spec.HelmValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract helm values: %w", err)
+	}
+	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.PlatformCluster)
+	externalSecretsNamespace := namespaceExternalSecrets
+	if helmValues.NamespaceOverride != "" {
+		externalSecretsNamespace = helmValues.NamespaceOverride
+	}
+	mcpCluster := externalsecrets.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, externalsecrets.ManagedControlPlane)
+	// sync image pull secrets from platform cluster to mcp
+	externalsecrets.ManagePullSecrets(mcpCluster, helmValues.Global.ImagePullSecrets, externalsecrets.SecretCopyConfig{
+		SourceClient:    platformCluster.GetClient(),
+		SourceNamespace: r.PodNamespace,
+		TargetNamespace: externalSecretsNamespace,
+	})
+	// sync chart pull secrets within platform cluster from pod namespace to tenant namespace
+	if pc.Spec.ChartPullSecret != nil {
+		externalsecrets.ManagePullSecrets(platformCluster, []corev1.LocalObjectReference{
+			{
+				Name: *pc.Spec.ChartPullSecret,
+			},
+		}, externalsecrets.SecretCopyConfig{
+			SourceClient:    platformCluster.GetClient(),
+			SourceNamespace: r.PodNamespace,
+			TargetNamespace: tenantNamespace,
+		})
+	}
+	externalsecrets.ManageFluxResources(platformCluster, externalSecretsNamespace, obj, pc, clusters)
+	mgr := externalsecrets.NewManager()
+	mgr.AddCluster(mcpCluster)
+	mgr.AddCluster(platformCluster)
+	return mgr, nil
+}
+
+func resultsToResources(ctx context.Context, results []externalsecrets.Result) ([]apiv1alpha1.ManagedResource, bool) {
+	l := log.FromContext(ctx)
+	containsError := false
+	resources := make([]apiv1alpha1.ManagedResource, 0, len(results))
+	for _, res := range results {
+		obj := res.Object.GetObject()
+		status := res.Object.GetStatus(apiv1alpha1.ResourceLocation(res.Cluster.GetClusterType()))
+		resources = append(resources, apiv1alpha1.ManagedResource{
+			TypedObjectReference: corev1.TypedObjectReference{
+				Kind:      reflect.TypeOf(obj).Elem().Name(),
+				Name:      obj.GetName(),
+				Namespace: nilIfEmptyString(obj.GetNamespace()),
+			},
+			Phase:    status.Phase,
+			Message:  status.Message,
+			Location: status.Location,
+		})
+		if res.Error != nil {
+			containsError = true
+			l.Error(res.Error, "objectID", externalsecrets.ObjectID(obj))
+		}
+	}
+	return resources, containsError
+}
+
+func nilIfEmptyString(str string) *string {
+	if str == "" {
+		return nil
+	}
+	return ptr.To(str)
+}
+
+func allResourcesReady(resources []apiv1alpha1.ManagedResource) bool {
+	for _, res := range resources {
+		if res.Phase != apiv1alpha1.Ready {
+			return false
+		}
+	}
+	return true
+}

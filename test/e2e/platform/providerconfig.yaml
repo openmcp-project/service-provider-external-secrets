@@ -1,6 +1,14 @@
-apiVersion: foo.services.openmcp.cloud/v1alpha1
+apiVersion: external-secrets.services.openmcp.cloud/v1alpha1
 kind: ProviderConfig
 metadata:
-  name: default
+  name: externalsecretsoperator
 spec:
   pollInterval: 1m
+  chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
+  chartPullSecret: privateregcred
+  helmValues:
+    namespaceOverride: eso-system
+    global:
+      repository: ghcr.io/external-secrets/external-secrets
+      imagePullSecrets:
+        - name: privateregcred

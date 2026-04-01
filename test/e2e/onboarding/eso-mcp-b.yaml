@@ -1,0 +1,6 @@
+apiVersion: external-secrets.services.openmcp.cloud/v1alpha1
+kind: ExternalSecretsOperator
+metadata:
+  name: mcp-b
+spec:
+  version: "2.2.0"
