@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 		ServiceProviders: []providers.ServiceProviderSetup{
 			{
 				Name:               "externalsecretsoperator",
-				Image:              "ghcr.io/openmcp-project/images/service-provider-external-secrets:v0.1.0",
+				Image:              "ghcr.io/openmcp-project/images/service-provider-external-secrets:v0.1.0-dev",
 				LoadImageToCluster: true,
 			},
 		},
