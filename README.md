@@ -51,7 +51,7 @@ spec:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spec.version` | string | The version of External Secrets Operator to install |
+| `spec.version` | string | The Helm chart version of External Secrets Operator to install |
 
 ### ProviderConfig
 
