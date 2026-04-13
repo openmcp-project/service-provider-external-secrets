@@ -65,6 +65,7 @@ func TestManagePullSecrets(t *testing.T) {
 				require.NoError(t, tt.config.SourceClient.Get(context.TODO(), client.ObjectKeyFromObject(sourceSecret), sourceSecret))
 				require.NoError(t, tt.config.SourceClient.Get(context.TODO(), client.ObjectKeyFromObject(targetSecret), targetSecret))
 				assert.Equal(t, sourceSecret.Data, targetSecret.Data)
+				assert.Equal(t, corev1.SecretTypeDockerConfigJson, targetSecret.Type, "target secret should have the correct type")
 			}
 		})
 	}
