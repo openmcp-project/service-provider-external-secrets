@@ -3,7 +3,7 @@ module github.com/openmcp-project/service-provider-external-secrets
 go 1.26.1
 
 require (
-	github.com/fluxcd/pkg/apis/meta v1.25.1
+	github.com/fluxcd/pkg/apis/meta v1.26.0
 	github.com/openmcp-project/controller-utils v0.27.1
 	github.com/openmcp-project/openmcp-operator/api v0.18.1
 	github.com/openmcp-project/openmcp-operator/lib v0.18.1
@@ -25,7 +25,7 @@ require (
 	github.com/fluxcd/flux2/v2 v2.8.3 // indirect
 	github.com/fluxcd/kustomize-controller/api v1.8.2 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
-	github.com/fluxcd/pkg/apis/kustomize v1.15.1 // indirect
+	github.com/fluxcd/pkg/apis/kustomize v1.16.0 // indirect
 	github.com/fluxcd/pkg/kustomize v1.27.1 // indirect
 	github.com/fluxcd/pkg/tar v0.17.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
@@ -82,8 +82,8 @@ require (
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fluxcd/helm-controller/api v1.5.3
-	github.com/fluxcd/pkg/runtime v0.102.0
-	github.com/fluxcd/source-controller/api v1.8.1
+	github.com/fluxcd/pkg/runtime v0.103.0
+	github.com/fluxcd/source-controller/api v1.8.2
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -130,7 +130,7 @@ require (
 	k8s.io/component-base v0.35.3 // indirect
 	k8s.io/klog/v2 v2.140.0
 	k8s.io/kube-openapi v0.0.0-20251125145642-4e65d59e963e // indirect
-	k8s.io/utils v0.0.0-20260108192941-914a6e750570
+	k8s.io/utils v0.0.0-20260319190234-28399d86e0b5
 	sigs.k8s.io/e2e-framework v0.6.0
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
