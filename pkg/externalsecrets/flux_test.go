@@ -30,81 +30,79 @@ func TestManageFluxResources(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for target function.
-		cluster                  ManagedCluster
-		externalSecretsNamespace string
-		obj                      *apiv1alpha1.ExternalSecretsOperator
-		pc                       *apiv1alpha1.ProviderConfig
-		cc                       spruntime.ClusterContext
+		params ManageFluxResourcesParams
 	}{
 		{
-			name:                     "APIObject and ProviderConfig values mapping",
-			cluster:                  NewManagedCluster(CreateFakeCluster(t, "platform"), &rest.Config{}, testNamespace, PlatformCluster),
-			externalSecretsNamespace: "external-secrets",
-			obj: &apiv1alpha1.ExternalSecretsOperator{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test",
-					Namespace: testNamespace,
-				},
-				Spec: apiv1alpha1.ExternalSecretsOperatorSpec{
-					Version: "v2.2.0",
-				},
-			},
-			pc: &apiv1alpha1.ProviderConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test",
-					Namespace: testNamespace,
-				},
-				Spec: apiv1alpha1.ProviderConfigSpec{
-					ChartURL:        new(testCharURL),
-					ChartPullSecret: new(testChartPullSecret),
-					HelmValues: &apiextensionv1.JSON{
-						Raw: []byte(`{"foo":"bar"}`),
+			name: "APIObject and ProviderConfig values mapping",
+			params: ManageFluxResourcesParams{
+				Cluster:      NewManagedCluster(CreateFakeCluster(t, "platform"), &rest.Config{}, testNamespace, PlatformCluster),
+				MCPNamespace: "external-secrets",
+				Obj: &apiv1alpha1.ExternalSecretsOperator{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test",
+						Namespace: testNamespace,
 					},
-					PollInterval: &metav1.Duration{
-						Duration: time.Hour,
+					Spec: apiv1alpha1.ExternalSecretsOperatorSpec{
+						Version: "v2.2.0",
 					},
 				},
-			},
-			cc: spruntime.ClusterContext{
-				MCPAccessSecretKey: client.ObjectKey{
-					Namespace: testNamespace,
-					Name:      testKubeconfigKey,
+				ProviderConfig: &apiv1alpha1.ProviderConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test",
+						Namespace: testNamespace,
+					},
+					Spec: apiv1alpha1.ProviderConfigSpec{
+						ChartURL:        new(testCharURL),
+						ChartPullSecret: new(testChartPullSecret),
+						HelmValues: &apiextensionv1.JSON{
+							Raw: []byte(`{"foo":"bar"}`),
+						},
+						PollInterval: &metav1.Duration{
+							Duration: time.Hour,
+						},
+					},
 				},
-			},
-		},
+				ClusterContext: spruntime.ClusterContext{
+					MCPAccessSecretKey: client.ObjectKey{
+						Namespace: testNamespace,
+						Name:      testKubeconfigKey,
+					},
+				},
+				ChartPullSecretName: "secret-copy",
+			}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ManageFluxResources(tt.cluster, tt.externalSecretsNamespace, tt.obj, tt.pc, tt.cc)
+			ManageFluxResources(tt.params)
 			// expect oci repo and helm release without errors
-			ExecApply(t, []ManagedCluster{tt.cluster}, 2, []string{})
+			ExecApply(t, []ManagedCluster{tt.params.Cluster}, 2, []string{})
 
 			// assert oci repo
 			ociRepo := &sourcev1.OCIRepository{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      tt.obj.Name,
+					Name:      tt.params.Obj.Name,
 					Namespace: testNamespace,
 				},
 			}
-			require.NoError(t, tt.cluster.GetClient().Get(context.TODO(), client.ObjectKeyFromObject(ociRepo), ociRepo))
-			assert.Equal(t, tt.pc.Spec.ChartURL, ptr.To(ociRepo.Spec.URL))
-			assert.Equal(t, tt.pc.Spec.ChartPullSecret, ptr.To(ociRepo.Spec.SecretRef.Name))
-			assert.Equal(t, tt.obj.Spec.Version, ociRepo.Spec.Reference.Tag)
-			assert.Equal(t, tt.pc.Spec.PollInterval.Duration, ociRepo.Spec.Interval.Duration)
+			require.NoError(t, tt.params.Cluster.GetClient().Get(context.TODO(), client.ObjectKeyFromObject(ociRepo), ociRepo))
+			assert.Equal(t, tt.params.ProviderConfig.Spec.ChartURL, ptr.To(ociRepo.Spec.URL))
+			assert.Equal(t, tt.params.ChartPullSecretName, ociRepo.Spec.SecretRef.Name)
+			assert.Equal(t, tt.params.Obj.Spec.Version, ociRepo.Spec.Reference.Tag)
+			assert.Equal(t, tt.params.ProviderConfig.Spec.PollInterval.Duration, ociRepo.Spec.Interval.Duration)
 
 			// assert helm release
 			helmRelease := &helmv2.HelmRelease{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      tt.obj.Name,
+					Name:      tt.params.Obj.Name,
 					Namespace: testNamespace,
 				},
 			}
-			require.NoError(t, tt.cluster.GetClient().Get(context.TODO(), client.ObjectKeyFromObject(helmRelease), helmRelease))
-			assert.Equal(t, tt.pc.Spec.HelmValues, helmRelease.Spec.Values)
-			assert.Equal(t, tt.pc.Spec.PollInterval.Duration, helmRelease.Spec.Interval.Duration)
-			assert.Equal(t, tt.externalSecretsNamespace, helmRelease.Spec.StorageNamespace)
-			assert.Equal(t, tt.externalSecretsNamespace, helmRelease.Spec.TargetNamespace)
-			assert.Equal(t, tt.cc.MCPAccessSecretKey.Name, helmRelease.Spec.KubeConfig.SecretRef.Name)
+			require.NoError(t, tt.params.Cluster.GetClient().Get(context.TODO(), client.ObjectKeyFromObject(helmRelease), helmRelease))
+			assert.Equal(t, tt.params.ProviderConfig.Spec.HelmValues, helmRelease.Spec.Values)
+			assert.Equal(t, tt.params.ProviderConfig.Spec.PollInterval.Duration, helmRelease.Spec.Interval.Duration)
+			assert.Equal(t, tt.params.MCPNamespace, helmRelease.Spec.StorageNamespace)
+			assert.Equal(t, tt.params.MCPNamespace, helmRelease.Spec.TargetNamespace)
+			assert.Equal(t, tt.params.ClusterContext.MCPAccessSecretKey.Name, helmRelease.Spec.KubeConfig.SecretRef.Name)
 			assert.Equal(t, "kubeconfig", helmRelease.Spec.KubeConfig.SecretRef.Key)
 		})
 	}

@@ -16,12 +16,28 @@ import (
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
+// ManageFluxResourcesParams groups all parameters to create the required manage flux resources
+type ManageFluxResourcesParams struct {
+	// Cluster defines where the resources will be created
+	Cluster ManagedCluster
+	// MCPNamespace defines the namespace name that deploy ESO
+	MCPNamespace string
+	// ChartPullSecretName defines the name of the secret copy that will be placed in the Cluster namespace
+	ChartPullSecretName string
+	// Obj is the tenant API object that is being reconciled
+	Obj *apiv1alpha1.ExternalSecretsOperator
+	// ProviderConfig of the current reconciliation context
+	ProviderConfig *apiv1alpha1.ProviderConfig
+	// ClusterContext of the current reconciliation context
+	ClusterContext spruntime.ClusterContext
+}
+
 // ManageFluxResources configures OCIRepo and HelmRelease
-func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, cc spruntime.ClusterContext) {
+func ManageFluxResources(p ManageFluxResourcesParams) {
 	ociRepo := NewManagedObject(&sourcev1.OCIRepository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Name,
-			Namespace: cluster.GetDefaultNamespace(),
+			Name:      p.Obj.Name,
+			Namespace: p.Cluster.GetDefaultNamespace(),
 		},
 	}, ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
@@ -30,10 +46,10 @@ func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string
 				return fmt.Errorf("expected *sourcev1.OCIRepository, got %T", o)
 			}
 			ociRepo.Spec = sourcev1.OCIRepositorySpec{
-				Interval: metav1.Duration{Duration: pc.PollInterval()},
-				URL:      *pc.Spec.ChartURL,
+				Interval: metav1.Duration{Duration: p.ProviderConfig.PollInterval()},
+				URL:      *p.ProviderConfig.Spec.ChartURL,
 				Reference: &sourcev1.OCIRepositoryRef{
-					Tag: obj.Spec.Version,
+					Tag: p.Obj.Spec.Version,
 				},
 				// required to always select the correct OCI layer
 				// this mitigates non-deterministic layer ordering across different eso versions
@@ -44,9 +60,9 @@ func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string
 					Operation: "extract",
 				},
 			}
-			if pc.Spec.ChartPullSecret != nil {
+			if p.ChartPullSecretName != "" {
 				ociRepo.Spec.SecretRef = &meta.LocalObjectReference{
-					Name: *pc.Spec.ChartPullSecret,
+					Name: p.ChartPullSecretName,
 				}
 			}
 			return nil
@@ -55,12 +71,12 @@ func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string
 		DeletionPolicy: Delete,
 		StatusFunc:     FluxStatus,
 	})
-	cluster.AddObject(ociRepo)
+	p.Cluster.AddObject(ociRepo)
 
 	helmRelease := NewManagedObject(&helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Name,
-			Namespace: cluster.GetDefaultNamespace(),
+			Name:      p.Obj.Name,
+			Namespace: p.Cluster.GetDefaultNamespace(),
 		},
 	}, ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
@@ -69,15 +85,15 @@ func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string
 				return fmt.Errorf("expected *helmv2.HelmRelease, got %T", o)
 			}
 			helmRelease.Spec = helmv2.HelmReleaseSpec{
-				Interval: metav1.Duration{Duration: pc.PollInterval()},
+				Interval: metav1.Duration{Duration: p.ProviderConfig.PollInterval()},
 				ChartRef: &helmv2.CrossNamespaceSourceReference{
 					Kind:      "OCIRepository",
-					Name:      obj.Name,
-					Namespace: cluster.GetDefaultNamespace(),
+					Name:      p.Obj.Name,
+					Namespace: p.Cluster.GetDefaultNamespace(),
 				},
 				KubeConfig: &meta.KubeConfigReference{
 					SecretRef: &meta.SecretKeyReference{
-						Name: cc.MCPAccessSecretKey.Name,
+						Name: p.ClusterContext.MCPAccessSecretKey.Name,
 						Key:  "kubeconfig",
 					},
 				},
@@ -87,9 +103,9 @@ func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string
 					},
 					CreateNamespace: true,
 				},
-				Values:           pc.Spec.HelmValues,
-				TargetNamespace:  externalSecretsNamespace,
-				StorageNamespace: externalSecretsNamespace,
+				Values:           p.ProviderConfig.Spec.HelmValues,
+				TargetNamespace:  p.MCPNamespace,
+				StorageNamespace: p.MCPNamespace,
 			}
 			return nil
 		},
@@ -97,7 +113,7 @@ func ManageFluxResources(cluster ManagedCluster, externalSecretsNamespace string
 		DeletionPolicy: Delete,
 		StatusFunc:     FluxStatus,
 	})
-	cluster.AddObject(helmRelease)
+	p.Cluster.AddObject(helmRelease)
 }
 
 // FluxStatus indicates whether the given object is in phase terminating, pending or ready.

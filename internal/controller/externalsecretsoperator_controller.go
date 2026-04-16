@@ -110,24 +110,36 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	}
 	mcpCluster := externalsecrets.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, externalsecrets.ManagedControlPlane)
 	// sync image pull secrets from platform cluster to mcp
-	externalsecrets.ManagePullSecrets(mcpCluster, helmValues.Global.ImagePullSecrets, externalsecrets.SecretCopyConfig{
-		SourceClient:    platformCluster.GetClient(),
-		SourceNamespace: r.PodNamespace,
-		TargetNamespace: externalSecretsNamespace,
-	})
+	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
+		externalsecrets.ManagePullSecret(mcpCluster, imagePullSecret, externalsecrets.SecretCopyConfig{
+			SourceClient:    platformCluster.GetClient(),
+			SourceNamespace: r.PodNamespace,
+			TargetNamespace: externalSecretsNamespace,
+			TargetName:      imagePullSecret.Name,
+		})
+	}
 	// sync chart pull secrets within platform cluster from pod namespace to tenant namespace
+	var prefixedChartPullSecret string
 	if pc.Spec.ChartPullSecret != nil {
-		externalsecrets.ManagePullSecrets(platformCluster, []corev1.LocalObjectReference{
-			{
-				Name: *pc.Spec.ChartPullSecret,
-			},
-		}, externalsecrets.SecretCopyConfig{
+		prefixedChartPullSecret, err = externalsecrets.PrefixSecretName(*pc.Spec.ChartPullSecret)
+		if err != nil {
+			return nil, fmt.Errorf("error generating secret name: %w", err)
+		}
+		externalsecrets.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, externalsecrets.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: tenantNamespace,
+			TargetName:      prefixedChartPullSecret,
 		})
 	}
-	externalsecrets.ManageFluxResources(platformCluster, externalSecretsNamespace, obj, pc, clusters)
+	externalsecrets.ManageFluxResources(externalsecrets.ManageFluxResourcesParams{
+		Cluster:             platformCluster,
+		MCPNamespace:        externalSecretsNamespace,
+		ChartPullSecretName: prefixedChartPullSecret,
+		Obj:                 obj,
+		ProviderConfig:      pc,
+		ClusterContext:      clusters,
+	})
 	mgr := externalsecrets.NewManager()
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
