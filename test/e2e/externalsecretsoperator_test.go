@@ -59,7 +59,7 @@ func TestServiceProvider(t *testing.T) {
 				return ctx
 			},
 		).
-		Assess("Platform Cluster: chart pull secret sync to tenant namespaces", chartSecretSynced("privateregcred")).
+		Assess("Platform Cluster: chart pull secret sync to tenant namespaces", chartSecretSynced("sp-eso-privateregcred")).
 		Assess("MCP A: image pull secrets are synced", imagePullSecretSynced(mcpA, client.ObjectKey{Name: "privateregcred", Namespace: "eso-system"})).
 		Assess("MCP B: image pull secrets are synced", imagePullSecretSynced(mcpB, client.ObjectKey{Name: "privateregcred", Namespace: "eso-system"})).
 		Assess("MCP A: domain objects can be created", createSecretStoreAndExternalSecret(mcpA, &mcpAObjects)).
