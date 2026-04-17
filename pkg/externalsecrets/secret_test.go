@@ -3,6 +3,7 @@ package externalsecrets
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,7 +57,7 @@ func TestManagePullSecrets(t *testing.T) {
 				SourceClient:    fakeCluster.Client(),
 				SourceNamespace: sourceNamespace,
 				TargetNamespace: targetNamespace,
-				TargetName:      fmt.Sprintf("%s-copy", secretName),
+				TargetName:      fmt.Sprintf("%s%s", secretNamePrefix, secretName),
 			},
 		},
 	}
@@ -88,6 +89,26 @@ func TestManagePullSecrets(t *testing.T) {
 			assert.Equal(t, sourceSecret.Data, targetSecret.Data)
 			assert.Equal(t, map[string][]byte{"existing-secret-data": []byte("must-not-be-altered")}, existingSecret.Data)
 			assert.Equal(t, corev1.SecretTypeDockerConfigJson, targetSecret.Type, "target secret should have the correct type")
+		})
+	}
+}
+
+func TestPrefixSecretName(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantLen int // expected max length
+		wantErr bool
+	}{
+		{"short name", "privateregcred", 21, false}, // "sp-eso-" + 14 chars
+		{"long name truncated", strings.Repeat("a", 60), 63, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := PrefixSecretName(tt.input)
+			require.NoError(t, err)
+			assert.True(t, strings.HasPrefix(got, secretNamePrefix))
+			assert.LessOrEqual(t, len(got), 63)
 		})
 	}
 }

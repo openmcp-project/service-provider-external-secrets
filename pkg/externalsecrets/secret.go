@@ -56,8 +56,10 @@ func ManagePullSecret(targetCluster ManagedCluster, pullSecret corev1.LocalObjec
 	targetCluster.AddObject(secret)
 }
 
-// PrefixSecretName adds a prefix to the given secret name
-// Prevents name collisions in namespaces where multiple controllers operate
+// PrefixSecretName adds the "sp-eso-" prefix to the given secret name
+// to prevent name collisions in namespaces where multiple service providers operate.
+// If the resulting name exceeds 63 characters (K8s limit), it will be truncated
+// and a hash suffix appended for uniqueness via ShortenToXCharacters.
 func PrefixSecretName(secretName string) (string, error) {
 	return ctrlutils.ShortenToXCharacters(fmt.Sprintf("%s%s", secretNamePrefix, secretName), ctrlutils.K8sMaxNameLength)
 }
