@@ -95,13 +95,11 @@ func TestManagePullSecrets(t *testing.T) {
 
 func TestPrefixSecretName(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		wantLen int // expected max length
-		wantErr bool
+		name  string
+		input string
 	}{
-		{"short name", "privateregcred", 21, false}, // "sp-eso-" + 14 chars
-		{"long name truncated", strings.Repeat("a", 60), 63, false},
+		{"short name", "privateregcred"},
+		{"long name truncated", strings.Repeat("a", 60)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
