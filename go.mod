@@ -81,7 +81,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
-	github.com/fluxcd/helm-controller/api v1.5.3
+	github.com/fluxcd/helm-controller/api v1.5.4
 	github.com/fluxcd/pkg/runtime v0.103.0
 	github.com/fluxcd/source-controller/api v1.8.2
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
