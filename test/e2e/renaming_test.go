@@ -53,39 +53,10 @@ func TestRenaming(t *testing.T) {
 				t.Errorf("failed to create onboarding cluster objects: %v", err)
 				return ctx
 			}
-			oldApiObject := &unstructured.Unstructured{}
-			oldApiObject.SetName(mcpA)
-			oldApiObject.SetNamespace(corev1.NamespaceDefault)
-			oldApiObject.SetGroupVersionKind(schema.GroupVersionKind{
-				Group:   "external-secrets.services.openmcp.cloud",
-				Version: "v1alpha1",
-				Kind:    "ExternalSecretsOperator",
-			})
-
+			oldApiObject := oldApiObject(types.NamespacedName{Name: mcpA, Namespace: corev1.NamespaceDefault})
 			if err := wait.For(openmcpconditions.Match(oldApiObject, onboardingConfig, "Ready", corev1.ConditionTrue)); err != nil {
 				t.Errorf("external secrets operator not ready: %v", err)
 				return ctx
-			}
-
-			if err := onboardingConfig.Client().Resources().Get(ctx, oldApiObject.GetName(), oldApiObject.GetNamespace(), oldApiObject); err != nil {
-				t.Errorf("failed to get api object: %v", err)
-				return ctx
-			}
-			eso = &v1alpha1.ExternalSecretsOperator{}
-			eso.SetName(oldApiObject.GetName())
-			eso.SetNamespace(oldApiObject.GetNamespace())
-			eso.SetGroupVersionKind(schema.GroupVersionKind{
-				Group:   "external-secrets.services.open-control-plane.io",
-				Version: oldApiObject.GetObjectKind().GroupVersionKind().Version,
-				Kind:    oldApiObject.GetKind(),
-			})
-			esoVersion, _, err := unstructured.NestedFieldCopy(oldApiObject.Object, "spec", "version")
-			if err != nil {
-				t.Errorf("failed to retrieve old api object spec: %v", err)
-				return ctx
-			}
-			eso.Spec = v1alpha1.ExternalSecretsOperatorSpec{
-				Version: esoVersion.(string),
 			}
 			return ctx
 		},
@@ -153,6 +124,24 @@ func TestRenaming(t *testing.T) {
 				return ctx
 			}
 			v1alpha1.AddToScheme(onboardingConfig.Client().Resources().GetScheme())
+
+			oldApiObject := oldApiObject(types.NamespacedName{Name: mcpA, Namespace: corev1.NamespaceDefault})
+			if err := onboardingConfig.Client().Resources().Get(ctx, oldApiObject.GetName(), oldApiObject.GetNamespace(), oldApiObject); err != nil {
+				t.Errorf("failed to get api object: %v", err)
+				return ctx
+			}
+			// prepare copy of old api object with new api group
+			esoVersion, _, err := unstructured.NestedFieldCopy(oldApiObject.Object, "spec", "version")
+			if err != nil {
+				t.Errorf("failed to retrieve old api object spec: %v", err)
+				return ctx
+			}
+			eso = &v1alpha1.ExternalSecretsOperator{}
+			eso.SetName(oldApiObject.GetName())
+			eso.SetNamespace(oldApiObject.GetNamespace())
+			eso.Spec = v1alpha1.ExternalSecretsOperatorSpec{
+				Version: esoVersion.(string),
+			}
 			if err := onboardingConfig.Client().Resources().Create(ctx, eso); err != nil {
 				t.Fatalf("failed to create new eso object: %v", err)
 			}
@@ -200,16 +189,26 @@ func TestRenaming(t *testing.T) {
 			if err := resources.DeleteObject(ctx, onboardingConfig, eso, wait.WithTimeout(time.Minute)); err != nil {
 				t.Errorf("failed to delete onboarding object: %v", err)
 			}
+
+			// 7. cleanup old resources and crd on the onboarding cluster (manual step in real environment)
+			// 8. cleanup old provider config resources + crd on the platform cluster (manual step in real environment)
 			return ctx
 		}).
 		Teardown(providers.DeleteMCP(mcpA, wait.WithTimeout(5*time.Minute)))
 	testenv.Test(t, basicProviderTest.Feature())
 
-	// (stop reconciliation with old provider - not implemented right now but also not required because of 3)
-	// (otherwise two controller try to manage the same resources which would impact tenant resources when deleting the old api)
+}
 
-	// 6. cleanup old resources and crd on the onboarding cluster (manual step in real environment)
-	// 7. cleanup old provider config resources + crd on the platform cluster (manual step in real environment)
+func oldApiObject(key types.NamespacedName) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{}
+	obj.SetName(key.Name)
+	obj.SetNamespace(key.Namespace)
+	obj.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "external-secrets.services.openmcp.cloud",
+		Version: "v1alpha1",
+		Kind:    "ExternalSecretsOperator",
+	})
+	return obj
 }
 
 type expectedParameters struct {
