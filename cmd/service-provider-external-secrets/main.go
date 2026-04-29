@@ -238,7 +238,7 @@ func main() {
 		},
 	}
 	clusterAccessManager := clusteraccess.NewClusterAccessManager(platformCluster.Client(),
-		"externalsecretsoperator.external-secrets.services.openmcp.cloud", os.Getenv("POD_NAMESPACE"))
+		"externalsecretsoperator.external-secrets.open-control-plane.io", os.Getenv("POD_NAMESPACE"))
 	clusterAccessManager.WithLogger(&log).
 		WithInterval(10 * time.Second).
 		WithTimeout(30 * time.Minute)

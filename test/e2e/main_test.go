@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 		Namespace: "openmcp-system",
 		Operator: setup.OpenMCPOperatorSetup{
 			Name:         "openmcp-operator",
-			Image:        "ghcr.io/openmcp-project/images/openmcp-operator:v0.18.1",
+			Image:        "ghcr.io/openmcp-project/images/openmcp-operator:v0.19.1",
 			Environment:  "debug",
 			PlatformName: "platform",
 		},
@@ -39,7 +39,11 @@ func TestMain(m *testing.M) {
 		},
 		ServiceProviders: []providers.ServiceProviderSetup{
 			{
-				Name:               "externalsecretsoperator",
+				Name:  "externalsecretsoperator-old",
+				Image: "ghcr.io/openmcp-project/images/service-provider-external-secrets:v0.1.2",
+			},
+			{
+				Name:               "externalsecretsoperator-new",
 				Image:              fmt.Sprintf("ghcr.io/openmcp-project/images/service-provider-external-secrets:%s", version),
 				LoadImageToCluster: true,
 			},
