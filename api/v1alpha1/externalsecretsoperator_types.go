@@ -20,6 +20,7 @@ import (
 	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // InstancePhase is a custom type representing the phase of a service instance.
@@ -100,7 +101,10 @@ type ExternalSecretsOperatorList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ExternalSecretsOperator{}, &ExternalSecretsOperatorList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &ExternalSecretsOperator{}, &ExternalSecretsOperatorList{})
+		return nil
+	})
 }
 
 // Finalizer returns the finalizer string for the ExternalSecretsOperator resource
