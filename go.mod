@@ -3,7 +3,7 @@ module github.com/openmcp-project/service-provider-external-secrets
 go 1.26.2
 
 require (
-	github.com/fluxcd/pkg/apis/meta v1.26.0
+	github.com/fluxcd/pkg/apis/meta v1.27.0
 	github.com/openmcp-project/controller-utils v0.27.1
 	github.com/openmcp-project/openmcp-operator/api v0.19.1
 	github.com/openmcp-project/openmcp-operator/lib v0.19.1
