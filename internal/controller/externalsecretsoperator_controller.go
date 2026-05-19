@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,11 @@ import (
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
+
+const conditionReasonError = "ReconcileError"
+
+// ErrManagedResources is an end-user facing error if errors are present inside ExternalSecretsOperator.Status.ManagedResources
+var ErrManagedResources error = errors.New("resources contain reconcile errors")
 
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
@@ -51,19 +57,17 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 	spruntime.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
-		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
+		spruntime.StatusProgressing(obj, conditionReasonError, err.Error())
 		return ctrl.Result{}, spruntime.IgnoreFunctionalError(err)
 	}
-	results := mgr.Apply(ctx)
+	results, err := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
 	if allResourcesReady(managedResources) {
 		spruntime.StatusReady(obj)
 	}
-	if resultContainsErrors {
-		resultWithErrors := errors.New("resources contain reconcile errors")
-		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
-		return ctrl.Result{}, resultWithErrors
+	if resultContainsErrors || err != nil {
+		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
 	}
 	return ctrl.Result{}, nil
 }
@@ -73,23 +77,45 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 	spruntime.StatusTerminating(obj)
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
-		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
+		spruntime.StatusProgressing(obj, conditionReasonError, err.Error())
 		return ctrl.Result{}, spruntime.IgnoreFunctionalError(err)
 	}
-	results := mgr.Delete(ctx)
+	results, err := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
 	if externalsecrets.AllDeleted(results) {
 		return ctrl.Result{}, nil
 	}
-	if resultContainsErrors {
-		resultWithErrors := errors.New("resources contain reconcile errors")
-		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
-		return ctrl.Result{}, resultWithErrors
+	if resultContainsErrors || err != nil {
+		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
 	}
 	return ctrl.Result{
 		RequeueAfter: time.Second * 5,
 	}, nil
+}
+
+func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, resourceErrors bool, err error) error {
+	if resourceErrors {
+		err = errors.Join(ErrManagedResources, err)
+	}
+	spruntime.StatusProgressing(obj, conditionReasonError, userErrorMessage(err))
+	return err
+}
+
+// userErrorMessage constructs an end-user facing error message.
+// Only end-user errors are processed.
+func userErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	errorMessages := []string{}
+	if errors.Is(err, ErrManagedResources) {
+		errorMessages = append(errorMessages, ErrManagedResources.Error())
+	}
+	if errors.Is(err, externalsecrets.ErrOrphanCleanup) {
+		errorMessages = append(errorMessages, externalsecrets.ErrOrphanCleanup.Error())
+	}
+	return strings.Join(errorMessages, "; ")
 }
 
 func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (externalsecrets.Manager, error) {
@@ -149,6 +175,22 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	mgr := externalsecrets.NewManager()
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
+
+	ociRepoCleaner := externalsecrets.NewOCIRepositoryCleaner(platformCluster, tenantNamespace)
+	helmReleaseCleaner := externalsecrets.NewHelmReleaseCleaner(platformCluster, tenantNamespace)
+
+	platformSecretCleaner := externalsecrets.NewSecretCleaner(platformCluster, tenantNamespace, []corev1.LocalObjectReference{
+		{
+			Name: prefixedChartPullSecret,
+		},
+	})
+	controlPlaneSecretCleaner := externalsecrets.NewSecretCleaner(mcpCluster, externalSecretsNamespace, helmValues.Global.ImagePullSecrets)
+
+	mgr.AddCleaner(ociRepoCleaner)
+	mgr.AddCleaner(helmReleaseCleaner)
+	mgr.AddCleaner(platformSecretCleaner)
+	mgr.AddCleaner(controlPlaneSecretCleaner)
+
 	return mgr, nil
 }
 

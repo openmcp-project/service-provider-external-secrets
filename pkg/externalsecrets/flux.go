@@ -8,6 +8,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -157,4 +158,36 @@ func FluxStatus(o client.Object, rl apiv1alpha1.ResourceLocation) Status {
 		Message:  "Resource is not ready",
 		Location: rl,
 	}
+}
+
+// NewHelmReleaseCleaner removes redundant HelmRelease objects in the given target namespace.
+// Any HelmRelease labeled as managed by sp-external-secrets with an outdated name will be removed.
+// This allows internal renaming when required.
+func NewHelmReleaseCleaner(cluster ManagedCluster, namespace string) OrphanCleaner {
+	return NewOrphanCleaner(cluster, namespace, cleanerType[*helmv2.HelmReleaseList]{
+		EmptyList: func() *helmv2.HelmReleaseList {
+			return &helmv2.HelmReleaseList{}
+		},
+		ObjectsToKeep: []corev1.LocalObjectReference{
+			{
+				Name: HelmReleaseName,
+			},
+		},
+	})
+}
+
+// NewOCIRepositoryCleaner removes redundant OCIRepository objects in the given target namespace.
+// Any OCIRepository labeled as managed by sp-external-secrets with an outdated name will be removed.
+// This allows internal renaming when required.
+func NewOCIRepositoryCleaner(platformCluster ManagedCluster, tenantNamespace string) OrphanCleaner {
+	return NewOrphanCleaner(platformCluster, tenantNamespace, cleanerType[*sourcev1.OCIRepositoryList]{
+		EmptyList: func() *sourcev1.OCIRepositoryList {
+			return &sourcev1.OCIRepositoryList{}
+		},
+		ObjectsToKeep: []corev1.LocalObjectReference{
+			{
+				Name: HelmReleaseName,
+			},
+		},
+	})
 }

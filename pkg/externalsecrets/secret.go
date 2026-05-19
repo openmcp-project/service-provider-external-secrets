@@ -63,3 +63,14 @@ func ManagePullSecret(targetCluster ManagedCluster, pullSecret corev1.LocalObjec
 func PrefixSecretName(secretName string) (string, error) {
 	return ctrlutils.ShortenToXCharacters(fmt.Sprintf("%s%s", secretNamePrefix, secretName), ctrlutils.K8sMaxNameLength)
 }
+
+// NewSecretCleaner removes redundant pull secrets in the given target namespace
+// by removing any secret labeled as managed by sp-external-secrets that is not in secretsToKeep.
+func NewSecretCleaner(cluster ManagedCluster, namespace string, secretsToKeep []corev1.LocalObjectReference) OrphanCleaner {
+	return NewOrphanCleaner(cluster, namespace, cleanerType[*corev1.SecretList]{
+		EmptyList: func() *corev1.SecretList {
+			return &corev1.SecretList{}
+		},
+		ObjectsToKeep: secretsToKeep,
+	})
+}

@@ -42,7 +42,7 @@ func ExecApply(t *testing.T, clusters []ManagedCluster, expectedManagedObjects i
 	for _, cluster := range clusters {
 		mgr.AddCluster(cluster)
 	}
-	results := mgr.Apply(context.TODO())
+	results, _ := mgr.Apply(context.TODO())
 	return assertResult(t, results, expectedManagedObjects, wantErrors)
 }
 

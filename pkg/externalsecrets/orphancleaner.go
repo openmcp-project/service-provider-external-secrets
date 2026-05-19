@@ -1,0 +1,93 @@
+package externalsecrets
+
+import (
+	"context"
+	"errors"
+	"slices"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
+)
+
+// ErrOrphanCleanup is an user-facing error that indicates secret cleanup failures
+var ErrOrphanCleanup = errors.New("orphan cleanup failed")
+
+var _ OrphanCleaner = &orphanCleaner[*corev1.PodList]{}
+
+type orphanCleaner[T client.ObjectList] struct {
+	cluster     ManagedCluster
+	namespace   string
+	cleanerType cleanerType[T]
+}
+
+type cleanerType[T client.ObjectList] struct {
+	ObjectsToKeep []corev1.LocalObjectReference
+	EmptyList     func() T
+}
+
+// NewOrphanCleaner removes redundant pull secrets in the given target namespace
+// by removing any secret labeled as managed by sp-flux that is not in secretsToKeep.
+func NewOrphanCleaner[T client.ObjectList](cluster ManagedCluster, namespace string, clType cleanerType[T]) OrphanCleaner {
+	return &orphanCleaner[T]{
+		cluster:     cluster,
+		namespace:   namespace,
+		cleanerType: clType,
+	}
+}
+
+func (c *orphanCleaner[T]) items(list T) []client.Object {
+	items, _ := meta.ExtractList(list)
+	objList := make([]client.Object, 0, len(items))
+	for _, item := range items {
+		if obj, ok := item.(client.Object); ok {
+			objList = append(objList, obj)
+		}
+	}
+	return objList
+}
+
+func (c *orphanCleaner[T]) Cleanup(ctx context.Context) ([]Result, error) {
+	results := []Result{}
+	objList := c.cleanerType.EmptyList()
+	cl := c.cluster.GetClient()
+	if err := cl.List(ctx, objList,
+		client.InNamespace(c.namespace),
+		client.MatchingLabels{LabelManagedBy: LabelManagedByValue},
+	); err != nil {
+		log.FromContext(ctx).Error(err, "failed to list objects for orphan cleanup")
+		return nil, ErrOrphanCleanup
+	}
+	for _, obj := range c.items(objList) {
+		if !slices.ContainsFunc(c.cleanerType.ObjectsToKeep, func(ref corev1.LocalObjectReference) bool { return obj.GetName() == ref.Name }) {
+			if err := cl.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
+				results = append(results, c.cleanupErrorResult(obj, err))
+			}
+		}
+	}
+	return results, nil
+}
+
+func (c *orphanCleaner[T]) cleanupErrorResult(obj client.Object, err error) Result {
+	return Result{
+		Object: &managedObject{
+			object:         obj,
+			statusFunc:     cleanupErrorStatus,
+			deletionPolicy: Delete,
+		},
+		Cluster:         c.cluster,
+		OperationResult: OperationResultDeletionFailed,
+		Error:           err,
+	}
+}
+
+func cleanupErrorStatus(_ client.Object, rl apiv1alpha1.ResourceLocation) Status {
+	return Status{
+		Phase:    apiv1alpha1.Terminating,
+		Message:  "Orphan cleanup failed",
+		Location: rl,
+	}
+}
