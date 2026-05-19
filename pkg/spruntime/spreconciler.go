@@ -7,17 +7,22 @@ import (
 	"time"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	controllerutil2 "github.com/openmcp-project/controller-utils/pkg/controller"
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
+	apiconst "github.com/openmcp-project/openmcp-operator/api/constants"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -28,6 +33,19 @@ type ServiceProviderReconciler[T ServiceProviderAPI, PC ProviderConfig] interfac
 	CreateOrUpdate(ctx context.Context, obj T, pc PC, clusters ClusterContext) (ctrl.Result, error)
 	// Delete is called on every delete event
 	Delete(ctx context.Context, obj T, pc PC, clusters ClusterContext) (ctrl.Result, error)
+}
+
+// SecretWatcher can optionally be implemented by a ServiceProviderReconciler
+// to trigger reconciliation of all ServiceProviderAPI objects when a
+// referenced secret in the provider namespace changes.
+// The watch is set up on the platform cluster and filtered to the namespace
+// configured via WithSecretNamespace.
+type SecretWatcher[PC ProviderConfig] interface {
+	// IsReferencedSecret returns true if the given secret should trigger
+	// reconciliation. pc is the current provider config — it will be the
+	// zero value (nil for pointer types) if not yet loaded; implementations
+	// must guard against this.
+	IsReferencedSecret(ctx context.Context, secret *corev1.Secret, pc PC) bool
 }
 
 // ClusterContext provides access to request-scoped clusters.
@@ -120,6 +138,8 @@ type SPReconciler[T ServiceProviderAPI, PC ProviderConfig] struct {
 	providerConfig atomic.Pointer[PC]
 	// withWorkloadCluster defines whether a service provider requires access to a workload cluster
 	withWorkloadCluster bool
+	// secretNamespace is the namespace to watch secrets in on the platform cluster. Used only if the ServiceProviderReconciler also implements SecretWatcher.
+	secretNamespace string
 	// emptyObj creates an empty object of the api type
 	emptyObj func() T
 }
@@ -161,6 +181,12 @@ func (r *SPReconciler[T, PC]) WithWorkloadCluster(b bool) *SPReconciler[T, PC] {
 	return r
 }
 
+// WithSecretNamespace enables secret watching in the given namespace on the platform cluster. Only used if the ServiceProviderReconciler also implements SecretWatcher.
+func (r *SPReconciler[T, PC]) WithSecretNamespace(ns string) *SPReconciler[T, PC] {
+	r.secretNamespace = ns
+	return r
+}
+
 // WithProviderConfig sets if the service provider config.
 func (r *SPReconciler[T, PC]) WithProviderConfig(config PC) *SPReconciler[T, PC] {
 	r.providerConfig.Store(&config)
@@ -168,18 +194,29 @@ func (r *SPReconciler[T, PC]) WithProviderConfig(config PC) *SPReconciler[T, PC]
 }
 
 // Reconcile orchestrates platform and DomainServiceReconciler logic to reconcile APIObjects
-func (r *SPReconciler[T, PC]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *SPReconciler[T, PC]) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reconcileErr error) {
 	l := logf.FromContext(ctx)
 	// common reconciler logic including get obj, providerconfig, mcp/workload access
 	obj := r.emptyObj()
 	if err := r.onboardingCluster.Client().Get(ctx, req.NamespacedName, obj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	// Skip reconciliation if annotation is set
+	if obj.GetAnnotations()[apiconst.OperationAnnotation] == apiconst.OperationAnnotationValueIgnore {
+		l.Info("Skipping resource due to ignore operation annotation")
+		return ctrl.Result{}, nil
+	}
 	oldObj := obj.DeepCopyObject().(T)
+	// always try to update the obj status
+	defer func() {
+		if err := r.updateStatus(ctx, obj, oldObj); err != nil {
+			l.Error(err, "status update failed")
+			reconcileErr = errors.Join(reconcileErr, err)
+		}
+	}()
 	providerConfig := r.providerConfig.Load()
 	if providerConfig == nil {
-		StatusProgressing(obj, "ReconcileError", "No ProviderConfig found")
-		r.updateStatus(ctx, obj, oldObj)
+		StatusProgressing(obj, reasonReconcileError, "No ProviderConfig found")
 		return ctrl.Result{}, errors.New("provider config missing")
 	}
 	providerConfigCopy := (*providerConfig).DeepCopyObject().(PC)
@@ -191,7 +228,6 @@ func (r *SPReconciler[T, PC]) Reconcile(ctx context.Context, req ctrl.Request) (
 		res, err = r.delete(ctx, obj, providerConfigCopy)
 	} else {
 		res, err = r.createOrUpdate(ctx, obj, providerConfigCopy)
-		r.updateStatus(ctx, obj, oldObj)
 	}
 	// return based on result/err
 	if err != nil {
@@ -207,40 +243,35 @@ func (r *SPReconciler[T, PC]) Reconcile(ctx context.Context, req ctrl.Request) (
 	}, nil
 }
 
-func (r *SPReconciler[T, PC]) updateStatus(ctx context.Context, newObj T, oldObj T) {
+func (r *SPReconciler[T, PC]) updateStatus(ctx context.Context, newObj T, oldObj T) error {
 	if equality.Semantic.DeepEqual(oldObj.GetStatus(), newObj.GetStatus()) {
-		return
+		return nil
 	}
-	if err := r.onboardingCluster.Client().Status().Patch(ctx, newObj, client.MergeFrom(oldObj)); err != nil {
-		l := logf.FromContext(ctx)
-		l.Error(err, "Patch status failed")
-	}
+	err := r.onboardingCluster.Client().Status().Patch(ctx, newObj, client.MergeFrom(oldObj))
+	// can't update status if object doesn't exist
+	return client.IgnoreNotFound(err)
 }
 
 // delete eventually invokes the domain delete logic of a service provider and is the place to implement
 // common logic that should be abstracted away from a service provider developer like handling cluster access.
 func (r *SPReconciler[T, PC]) delete(ctx context.Context, obj T, pc PC) (ctrl.Result, error) {
-	l := logf.FromContext(ctx)
-	oldObj := obj.DeepCopyObject().(T)
-
 	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
 	accessRequestsInDeletion, err := r.areAccessRequestsInDeletion(ctx, req)
 	if err != nil {
-		l.Error(err, "failed to check access requests in deletion")
+		StatusProgressing(obj, reasonReconcileError, "failed to check access requests in deletion")
 		return reconcile.Result{}, err
 	}
 	if !accessRequestsInDeletion {
 		clusters, res, err := r.clusters(ctx, req)
 		if err != nil {
-			StatusProgressing(obj, "ReconcileError", "cluster setup error")
+			terminatingWithReason(obj, reasonReconcileError, "cluster cleanup error")
 			return ctrl.Result{}, err
 		}
 		if res.RequeueAfter > 0 {
-			StatusProgressing(obj, "Reconciling", "clusters being setup")
+			terminatingWithReason(obj, "Reconciling", "cluster cleanup")
 			return res, nil
 		}
 		res, err = r.serviceProviderReconciler.Delete(ctx, obj, pc, clusters)
-		r.updateStatus(ctx, obj, oldObj)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -251,6 +282,7 @@ func (r *SPReconciler[T, PC]) delete(ctx context.Context, obj T, pc PC) (ctrl.Re
 	// remove cluster access
 	res, err := r.clusterAccessReconciler.ReconcileDelete(ctx, req)
 	if err != nil {
+		terminatingWithReason(obj, reasonReconcileError, "failed cluster access reconcile delete")
 		return ctrl.Result{}, err
 	}
 	// make sure to not drop the object before cleanup has been done
@@ -260,6 +292,7 @@ func (r *SPReconciler[T, PC]) delete(ctx context.Context, obj T, pc PC) (ctrl.Re
 	// remove finalizer
 	controllerutil.RemoveFinalizer(obj, obj.Finalizer())
 	if err := r.onboardingCluster.Client().Update(ctx, obj); err != nil {
+		terminatingWithReason(obj, reasonReconcileError, "failed to remove finalizer")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
@@ -272,11 +305,13 @@ func (r *SPReconciler[T, PC]) createOrUpdate(ctx context.Context, obj T, pc PC) 
 		controllerutil.AddFinalizer(obj, obj.Finalizer())
 		return nil
 	}); err != nil {
+		StatusProgressing(obj, reasonReconcileError, "failed to add finalizer")
 		return ctrl.Result{}, err
 	}
 	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
 	clusters, res, err := r.clusters(ctx, req)
 	if err != nil {
+		StatusProgressing(obj, reasonReconcileError, "cluster setup error")
 		return ctrl.Result{}, err
 	}
 	if res.RequeueAfter > 0 {
@@ -311,7 +346,6 @@ func (r *SPReconciler[T, PC]) areAccessRequestsInDeletion(ctx context.Context, r
 // clusters returns any request scoped cluster that a servicer provider developer might want to access in order
 // to delivery its service.
 func (r *SPReconciler[T, PC]) clusters(ctx context.Context, req ctrl.Request) (ClusterContext, ctrl.Result, error) {
-	l := logf.FromContext(ctx)
 	clusters := ClusterContext{}
 	res, err := r.clusterAccessReconciler.Reconcile(ctx, req)
 	if err != nil {
@@ -336,7 +370,6 @@ func (r *SPReconciler[T, PC]) clusters(ctx context.Context, req ctrl.Request) (C
 	if r.withWorkloadCluster {
 		workloadCluster, err := r.clusterAccessReconciler.WorkloadCluster(ctx, req)
 		if err != nil {
-			l.Error(err, "workload cluster access error")
 			return clusters, ctrl.Result{}, err
 		}
 		if workloadCluster == nil {
@@ -354,7 +387,7 @@ func (r *SPReconciler[T, PC]) clusters(ctx context.Context, req ctrl.Request) (C
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *SPReconciler[T, PC]) SetupWithManager(mgr ctrl.Manager, name string, providerConfigUpdates chan event.GenericEvent) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	controller := ctrl.NewControllerManagedBy(mgr).
 		For(r.emptyObj()).
 		// sets up reconciles whenever provider config controller sends update events
 		WatchesRawSource(
@@ -370,24 +403,65 @@ func (r *SPReconciler[T, PC]) SetupWithManager(mgr ctrl.Manager, name string, pr
 							r.providerConfig.Store(nil)
 						}
 						// reconcile all existing objects
-						var list unstructured.UnstructuredList
-						gvk := r.emptyObj().GetObjectKind().GroupVersionKind()
-						list.SetGroupVersionKind(gvk)
-						if err := r.onboardingCluster.Client().List(ctx, &list); err != nil {
-							return nil
-						}
-						reqs := make([]reconcile.Request, len(list.Items))
-						for i := range list.Items {
-							reqs[i] = reconcile.Request{
-								NamespacedName: client.ObjectKeyFromObject(&list.Items[i]),
-							}
-						}
-						return reqs
+						return r.enqueueAllObjects(ctx)
 					},
 				)),
-		).
-		Named(name).
-		Complete(r)
+		)
+
+	// Optional: watch secrets on the platform cluster if the reconciler implements SecretWatcher
+	if sw, ok := r.serviceProviderReconciler.(SecretWatcher[PC]); ok && r.secretNamespace != "" {
+		controller = controller.WatchesRawSource(
+			source.Kind(
+				r.platformCluster.Cluster().GetCache(),
+				&corev1.Secret{},
+				handler.TypedEnqueueRequestsFromMapFunc(r.mapSecretToRequests(sw)),
+				controllerutil2.ToTypedPredicate[*corev1.Secret](
+					predicate.NewPredicateFuncs(func(obj client.Object) bool {
+						return obj.GetNamespace() == r.secretNamespace
+					}),
+				),
+			),
+		)
+	}
+
+	return controller.Named(name).Complete(r)
+}
+
+// mapSecretToRequests returns a typed map function that checks whether a changed secret
+// is referenced by the service provider and, if so, enqueues all ServiceProviderAPI objects.
+func (r *SPReconciler[T, PC]) mapSecretToRequests(sw SecretWatcher[PC]) func(ctx context.Context, secret *corev1.Secret) []reconcile.Request {
+	return func(ctx context.Context, secret *corev1.Secret) []reconcile.Request {
+		var pcVal PC
+		if pc := r.providerConfig.Load(); pc != nil {
+			pcVal = *pc
+		}
+		if !sw.IsReferencedSecret(ctx, secret, pcVal) {
+			return nil
+		}
+		return r.enqueueAllObjects(ctx)
+	}
+}
+
+// enqueueAllObjects lists all ServiceProviderAPI objects and returns a reconcile request for each.
+func (r *SPReconciler[T, PC]) enqueueAllObjects(ctx context.Context) []reconcile.Request {
+	var list unstructured.UnstructuredList
+	gvk, err := apiutil.GVKForObject(r.emptyObj(), r.onboardingCluster.Scheme())
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "failed to retrieve gvk")
+		return nil
+	}
+	list.SetGroupVersionKind(gvk)
+	if err := r.onboardingCluster.Client().List(ctx, &list); err != nil {
+		logf.FromContext(ctx).Error(err, "failed to list objects")
+		return nil
+	}
+	reqs := make([]reconcile.Request, len(list.Items))
+	for i := range list.Items {
+		reqs[i] = reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&list.Items[i]),
+		}
+	}
+	return reqs
 }
 
 func retrieveSecretKey(ar *clustersv1alpha1.AccessRequest) client.ObjectKey {

@@ -26,6 +26,29 @@ import (
 
 // ProviderConfigSpec defines the desired state of ProviderConfig
 type ProviderConfigSpec struct {
+	// Versions specify the valid inputs for the Flux.Spec.Version field.
+	// +required
+	Versions []ExternalSecretsVersion `json:"versions"`
+
+	// PollInterval at which the controller requeues to detect drift
+	// +optional
+	// +kubebuilder:default:="1m"
+	// +kubebuilder:validation:Format=duration
+	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
+}
+
+// ExternalSecretsVersion defines a version of External Secrets Operator that can be installed
+type ExternalSecretsVersion struct {
+	// Version is the External Secrets Operation version to install.
+	// This version is compared with ExternalSecretsOperator.Spec.Version to define available versions
+	// and the deployment artifacts of a version.
+	// +required
+	Version string `json:"version"`
+
+	// ChartVersion is the version of the Helm chart to install
+	// +required
+	ChartVersion string `json:"chartVersion"`
+
 	// ChartURL is a reference to an OCI artifact repository that hosts the external-secrets Helm chart.
 	// +optional
 	// +kubebuilder:default="oci://ghcr.io/external-secrets/charts/external-secrets"
@@ -34,13 +57,7 @@ type ProviderConfigSpec struct {
 	// ChartPullSecret is a reference to the secret containing the credentials to pull the Helm chart.
 	// The secret must be of type kubernetes.io/dockerconfigjson.
 	// +optional
-	ChartPullSecret *string `json:"chartPullSecret,omitempty"`
-
-	// PollInterval at which the controller requeues to detect drift
-	// +optional
-	// +kubebuilder:default:="1m"
-	// +kubebuilder:validation:Format=duration
-	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
+	ChartPullSecret string `json:"chartPullSecret,omitempty"`
 
 	// HelmValues are arbitrary Helm values passed directly to the managed HelmRelease.
 	// +optional
@@ -109,6 +126,5 @@ func init() {
 
 // PollInterval returns the poll interval duration from the spec.
 func (o *ProviderConfig) PollInterval() time.Duration {
-	// TODO pollInterval has to be required
 	return o.Spec.PollInterval.Duration
 }

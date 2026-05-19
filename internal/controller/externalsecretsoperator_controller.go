@@ -36,8 +36,6 @@ import (
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
-const namespaceExternalSecrets = "external-secrets"
-
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
 	// OnboardingCluster is the cluster where this controller watches ExternalSecretsOperator resources and reacts to their changes.
@@ -54,7 +52,7 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
 		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
-		return ctrl.Result{}, err
+		return ctrl.Result{}, spruntime.IgnoreFunctionalError(err)
 	}
 	results := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
@@ -76,7 +74,7 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
 		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
-		return ctrl.Result{}, err
+		return ctrl.Result{}, spruntime.IgnoreFunctionalError(err)
 	}
 	results := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
@@ -99,12 +97,17 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
 	}
-	helmValues, err := externalsecrets.ExtractHelmValues(pc.Spec.HelmValues)
+	// select the requested version from the provider config
+	esoVersion, err := selectExternalSecretsVersion(obj.Spec.Version, pc)
+	if err != nil {
+		return nil, err
+	}
+	helmValues, err := externalsecrets.ExtractHelmValues(esoVersion.HelmValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.PlatformCluster)
-	externalSecretsNamespace := namespaceExternalSecrets
+	externalSecretsNamespace := externalsecrets.DefaultNamespace
 	if helmValues.NamespaceOverride != "" {
 		externalSecretsNamespace = helmValues.NamespaceOverride
 	}
@@ -122,12 +125,12 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	}
 	// sync chart pull secrets within platform cluster from pod namespace to tenant namespace
 	var prefixedChartPullSecret string
-	if pc.Spec.ChartPullSecret != nil {
-		prefixedChartPullSecret, err = externalsecrets.PrefixSecretName(*pc.Spec.ChartPullSecret)
+	if esoVersion.ChartPullSecret != "" {
+		prefixedChartPullSecret, err = externalsecrets.PrefixSecretName(esoVersion.ChartPullSecret)
 		if err != nil {
 			return nil, fmt.Errorf("error generating secret name: %w", err)
 		}
-		externalsecrets.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, externalsecrets.SecretCopyConfig{
+		externalsecrets.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: esoVersion.ChartPullSecret}, externalsecrets.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: tenantNamespace,
@@ -139,13 +142,23 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 		MCPNamespace:        externalSecretsNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
-		ProviderConfig:      pc,
+		Interval:            pc.PollInterval(),
 		ClusterContext:      clusters,
+		RequestedVersion:    esoVersion,
 	})
 	mgr := externalsecrets.NewManager()
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
 	return mgr, nil
+}
+
+func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.ExternalSecretsVersion, spruntime.FunctionalError) {
+	for _, configVersion := range pc.Spec.Versions {
+		if configVersion.Version == requestedVersion {
+			return configVersion, nil
+		}
+	}
+	return apiv1alpha1.ExternalSecretsVersion{}, spruntime.NewFunctionalError(fmt.Errorf("requested version is not available: %s", requestedVersion))
 }
 
 func resultsToResources(ctx context.Context, results []externalsecrets.Result) ([]apiv1alpha1.ManagedResource, bool) {
