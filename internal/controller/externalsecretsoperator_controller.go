@@ -99,7 +99,7 @@ func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, resourceErrors 
 		err = errors.Join(ErrManagedResources, err)
 	}
 	spruntime.StatusProgressing(obj, conditionReasonError, userErrorMessage(err))
-	return err
+	return spruntime.IgnoreFunctionalError(err)
 }
 
 // userErrorMessage constructs an end-user facing error message.

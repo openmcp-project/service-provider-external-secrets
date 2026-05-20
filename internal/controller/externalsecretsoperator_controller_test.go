@@ -84,10 +84,11 @@ func Test_updateStatusError(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for target function.
-		obj            *apiv1alpha1.ExternalSecretsOperator
-		resourceErrors bool
-		err            error
-		wantMessage    string
+		obj             *apiv1alpha1.ExternalSecretsOperator
+		resourceErrors  bool
+		err             error
+		wantMessage     string
+		wantIgnoreError bool
 	}{
 		{
 			name:           "resource error",
@@ -124,11 +125,24 @@ func Test_updateStatusError(t *testing.T) {
 			err:            errors.New("non-user-facing-error"),
 			wantMessage:    "",
 		},
+		{
+			name:            "ignore functional errors",
+			obj:             &apiv1alpha1.ExternalSecretsOperator{},
+			resourceErrors:  true,
+			err:             spruntime.NewFunctionalError(errors.New("test")),
+			wantMessage:     ErrManagedResources.Error(),
+			wantIgnoreError: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			updateStatusError(tt.obj, tt.resourceErrors, tt.err)
+			gotErr := updateStatusError(tt.obj, tt.resourceErrors, tt.err)
 			assert.Equal(t, tt.wantMessage, tt.obj.Status.Conditions[0].Message)
+			if tt.wantIgnoreError {
+				assert.Nil(t, gotErr)
+				return
+			}
+			assert.Error(t, gotErr)
 		})
 	}
 }
