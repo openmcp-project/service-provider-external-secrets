@@ -13,7 +13,7 @@ import (
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 )
 
-// ErrOrphanCleanup is an user-facing error that indicates secret cleanup failures
+// ErrOrphanCleanup is an user-facing error that indicates orphan cleanup failures
 var ErrOrphanCleanup = errors.New("orphan cleanup failed")
 
 var _ OrphanCleaner = &orphanCleaner[*corev1.PodList]{}
@@ -29,8 +29,7 @@ type cleanerType[T client.ObjectList] struct {
 	EmptyList     func() T
 }
 
-// NewOrphanCleaner removes redundant pull secrets in the given target namespace
-// by removing any secret labeled as managed by sp-flux that is not in secretsToKeep.
+// NewOrphanCleaner removes redundant objects in the given target namespace.
 func NewOrphanCleaner[T client.ObjectList](cluster ManagedCluster, namespace string, clType cleanerType[T]) OrphanCleaner {
 	return &orphanCleaner[T]{
 		cluster:     cluster,
