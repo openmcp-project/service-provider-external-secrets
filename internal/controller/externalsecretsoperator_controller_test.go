@@ -17,11 +17,15 @@ limitations under the License.
 package controller
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
 func Test_selectExternalSecretsVersion(t *testing.T) {
@@ -65,12 +69,66 @@ func Test_selectExternalSecretsVersion(t *testing.T) {
 				if !tt.wantErr {
 					t.Errorf("selectExternalSecretsVersion() failed: %v", gotErr)
 				}
+				assert.Nil(t, spruntime.IgnoreFunctionalError(gotErr))
 				return
 			}
 			if tt.wantErr {
 				t.Fatal("selectExternalSecretsVersion() succeeded unexpectedly")
 			}
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_updateStatusError(t *testing.T) {
+	tests := []struct {
+		name string // description of this test case
+		// Named input parameters for target function.
+		obj            *apiv1alpha1.ExternalSecretsOperator
+		resourceErrors bool
+		err            error
+		wantMessage    string
+	}{
+		{
+			name:           "resource error",
+			obj:            &apiv1alpha1.ExternalSecretsOperator{},
+			resourceErrors: true,
+			err:            nil,
+			wantMessage:    ErrManagedResources.Error(),
+		},
+		{
+			name:           "cleanup error",
+			obj:            &apiv1alpha1.ExternalSecretsOperator{},
+			resourceErrors: false,
+			err:            externalsecrets.ErrOrphanCleanup,
+			wantMessage:    externalsecrets.ErrOrphanCleanup.Error(),
+		},
+		{
+			name:           "combined resource and cleanup error",
+			obj:            &apiv1alpha1.ExternalSecretsOperator{},
+			resourceErrors: true,
+			err:            externalsecrets.ErrOrphanCleanup,
+			wantMessage:    fmt.Sprintf("%s; %s", ErrManagedResources.Error(), externalsecrets.ErrOrphanCleanup.Error()),
+		},
+		{
+			name:           "resource error and no end-user error",
+			obj:            &apiv1alpha1.ExternalSecretsOperator{},
+			resourceErrors: true,
+			err:            errors.New("non-user-facing-error"),
+			wantMessage:    ErrManagedResources.Error(),
+		},
+		{
+			name:           "no end-user error",
+			obj:            &apiv1alpha1.ExternalSecretsOperator{},
+			resourceErrors: false,
+			err:            errors.New("non-user-facing-error"),
+			wantMessage:    "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updateStatusError(tt.obj, tt.resourceErrors, tt.err)
+			assert.Equal(t, tt.wantMessage, tt.obj.Status.Conditions[0].Message)
 		})
 	}
 }
