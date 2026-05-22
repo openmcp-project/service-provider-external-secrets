@@ -53,7 +53,7 @@ import (
 
 	"github.com/openmcp-project/service-provider-external-secrets/api/crds"
 
-	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
 
 	externalsecretsoperatorsv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/internal/controller"
@@ -309,19 +309,18 @@ func main() {
 		os.Exit(1)
 	}
 	providerConfigUpdates := make(chan event.GenericEvent)
-	spr := spruntime.NewSPReconciler[*externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, *externalsecretsoperatorsv1alpha1.ProviderConfig](
-		func() *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator {
+	spr := serviceprovider.NewAPIReconcilerBuilder[*externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, *externalsecretsoperatorsv1alpha1.ProviderConfig]().
+		EmptyObjectProvider(func() *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator {
 			return &externalsecretsoperatorsv1alpha1.ExternalSecretsOperator{}
-		},
-	).
-		WithPlatformCluster(platformCluster).
-		WithOnboardingCluster(onboardingCluster).
-		WithServiceProviderReconciler(&controller.ExternalSecretsOperatorReconciler{
+		}).
+		PlatformCluster(platformCluster).
+		OnboardingCluster(onboardingCluster).
+		Reconciler(&controller.ExternalSecretsOperatorReconciler{
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
 		}).
-		WithClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "ExternalSecretsOperator").
+		ClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "ExternalSecretsOperator").
 			WithMCPScheme(mcpScheme).
 			WithRetryInterval(10 * time.Second).
 			WithMCPPermissions(adminPermissions).WithMCPRoleRefs([]common.RoleRef{
@@ -330,16 +329,19 @@ func main() {
 				Kind: "ClusterRole",
 			}}).
 			SkipWorkloadCluster(),
-		)
+		).MustBuild()
 	if err := spr.SetupWithManager(mgr, "externalsecretsoperator", providerConfigUpdates); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExternalSecretsOperator")
 		os.Exit(1)
 	}
-	pcr := spruntime.NewPCReconciler(providerName, func() *externalsecretsoperatorsv1alpha1.ProviderConfig {
-		return &externalsecretsoperatorsv1alpha1.ProviderConfig{}
-	}).
-		WithPlatformCluster(platformCluster).
-		WithUpdateChannel(providerConfigUpdates)
+	pcr := serviceprovider.NewConfigReconcilerBuilder[*externalsecretsoperatorsv1alpha1.ProviderConfig]().
+		EmptyObjectProvider(func() *externalsecretsoperatorsv1alpha1.ProviderConfig {
+			return &externalsecretsoperatorsv1alpha1.ProviderConfig{}
+		}).
+		ProviderName(providerName).
+		PlatformCluster(platformCluster).
+		UpdateChannel(providerConfigUpdates).
+		MustBuild()
 	if err := pcr.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ProviderConfig")
 		os.Exit(1)

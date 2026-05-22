@@ -23,9 +23,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
-	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
 func Test_selectExternalSecretsVersion(t *testing.T) {
@@ -69,7 +70,7 @@ func Test_selectExternalSecretsVersion(t *testing.T) {
 				if !tt.wantErr {
 					t.Errorf("selectExternalSecretsVersion() failed: %v", gotErr)
 				}
-				assert.Nil(t, spruntime.IgnoreFunctionalError(gotErr))
+				assert.Nil(t, ctrlerrors.IgnoreInvalidUserInput(gotErr))
 				return
 			}
 			if tt.wantErr {
@@ -129,7 +130,7 @@ func Test_updateStatusError(t *testing.T) {
 			name:            "ignore functional errors",
 			obj:             &apiv1alpha1.ExternalSecretsOperator{},
 			resourceErrors:  true,
-			err:             spruntime.NewFunctionalError(errors.New("test")),
+			err:             fmt.Errorf("%w: value out of range", ctrlerrors.ErrInvalidUserInput),
 			wantMessage:     ErrManagedResources.Error(),
 			wantIgnoreError: true,
 		},

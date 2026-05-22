@@ -4,7 +4,8 @@ go 1.26.2
 
 require (
 	github.com/fluxcd/pkg/apis/meta v1.27.0
-	github.com/openmcp-project/controller-utils v0.28.0
+	github.com/openmcp-project/controller-utils v0.29.0
+	github.com/openmcp-project/opencontrolplane-runtime v0.1.0
 	github.com/openmcp-project/openmcp-operator/api v0.19.1
 	github.com/openmcp-project/openmcp-operator/lib v0.19.1
 	github.com/stretchr/testify v1.11.1
@@ -87,7 +88,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
-	github.com/go-logr/zapr v1.3.0
+	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/jsonreference v0.21.5 // indirect
 	github.com/go-openapi/swag v0.26.0 // indirect
@@ -111,7 +112,7 @@ require (
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.28.0
+	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/net v0.54.0 // indirect

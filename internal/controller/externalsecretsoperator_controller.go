@@ -32,9 +32,11 @@ import (
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
+	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
-	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
 const conditionReasonError = "ReconcileError"
@@ -53,18 +55,18 @@ type ExternalSecretsOperatorReconciler struct {
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
-	spruntime.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters serviceprovider.ClusterContext) (ctrl.Result, error) {
+	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
-		spruntime.StatusProgressing(obj, conditionReasonError, err.Error())
-		return ctrl.Result{}, spruntime.IgnoreFunctionalError(err)
+		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
+		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	results, err := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
 	if allResourcesReady(managedResources) {
-		spruntime.StatusReady(obj)
+		serviceprovider.StatusReady(obj)
 	}
 	if resultContainsErrors || err != nil {
 		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
@@ -73,12 +75,12 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 }
 
 // Delete is called on every delete event
-func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
-	spruntime.StatusTerminating(obj)
+func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters serviceprovider.ClusterContext) (ctrl.Result, error) {
+	serviceprovider.StatusTerminating(obj)
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
-		spruntime.StatusProgressing(obj, conditionReasonError, err.Error())
-		return ctrl.Result{}, spruntime.IgnoreFunctionalError(err)
+		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
+		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	results, err := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
@@ -98,8 +100,8 @@ func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, resourceErrors 
 	if resourceErrors {
 		err = errors.Join(ErrManagedResources, err)
 	}
-	spruntime.StatusProgressing(obj, conditionReasonError, userErrorMessage(err))
-	return spruntime.IgnoreFunctionalError(err)
+	serviceprovider.StatusProgressing(obj, conditionReasonError, userErrorMessage(err))
+	return ctrlerrors.IgnoreInvalidUserInput(err)
 }
 
 // userErrorMessage constructs an end-user facing error message.
@@ -118,7 +120,7 @@ func userErrorMessage(err error) string {
 	return strings.Join(errorMessages, "; ")
 }
 
-func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (externalsecrets.Manager, error) {
+func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters serviceprovider.ClusterContext) (externalsecrets.Manager, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
@@ -194,13 +196,13 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	return mgr, nil
 }
 
-func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.ExternalSecretsVersion, spruntime.FunctionalError) {
+func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.ExternalSecretsVersion, error) {
 	for _, configVersion := range pc.Spec.Versions {
 		if configVersion.Version == requestedVersion {
 			return configVersion, nil
 		}
 	}
-	return apiv1alpha1.ExternalSecretsVersion{}, spruntime.NewFunctionalError(fmt.Errorf("requested version is not available: %s", requestedVersion))
+	return apiv1alpha1.ExternalSecretsVersion{}, fmt.Errorf("%w: requested version (%s) is not available", ctrlerrors.ErrInvalidUserInput, requestedVersion)
 }
 
 func resultsToResources(ctx context.Context, results []externalsecrets.Result) ([]apiv1alpha1.ManagedResource, bool) {

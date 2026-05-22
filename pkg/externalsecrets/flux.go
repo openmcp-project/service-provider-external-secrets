@@ -14,8 +14,9 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
 const (
@@ -40,7 +41,7 @@ type ManageFluxResourcesParams struct {
 	// Interval defines OCIRepository and HelmRelease reconcile intervals
 	Interval time.Duration
 	// ClusterContext of the current reconciliation context
-	ClusterContext spruntime.ClusterContext
+	ClusterContext serviceprovider.ClusterContext
 	// RequestedVersion is the version of External Secrets Operator that a user requested through the onboarding API
 	RequestedVersion apiv1alpha1.ExternalSecretsVersion
 }
