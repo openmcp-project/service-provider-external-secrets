@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 
@@ -174,6 +175,20 @@ func NewHelmReleaseCleaner(cluster ManagedCluster, namespace string) OrphanClean
 				Name: HelmReleaseName,
 			},
 		},
+		PreDeletionSteps: func(ctx context.Context, o client.Object) (bool, error) {
+			helmRel, ok := o.(*helmv2.HelmRelease)
+			if !ok {
+				return false, fmt.Errorf("%w: failed type conversion", ErrOrphanCleanup)
+			}
+			opResult, err := controllerutil.CreateOrUpdate(ctx, cluster.GetClient(), helmRel, func() error {
+				helmRel.Spec.Suspend = true
+				return nil
+			})
+			if err != nil {
+				return false, fmt.Errorf("%w: pre delete step failed", err)
+			}
+			return opResult == controllerutil.OperationResultNone, nil
+		},
 	})
 }
 
@@ -187,7 +202,7 @@ func NewOCIRepositoryCleaner(cluster ManagedCluster, tenantNamespace string) Orp
 		},
 		ObjectsToKeep: []corev1.LocalObjectReference{
 			{
-				Name: HelmReleaseName,
+				Name: OCIRepositoryName,
 			},
 		},
 	})

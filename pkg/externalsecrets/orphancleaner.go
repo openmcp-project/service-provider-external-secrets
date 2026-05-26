@@ -3,6 +3,7 @@ package externalsecrets
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -25,8 +26,9 @@ type orphanCleaner[T client.ObjectList] struct {
 }
 
 type cleanerType[T client.ObjectList] struct {
-	ObjectsToKeep []corev1.LocalObjectReference
-	EmptyList     func() T
+	ObjectsToKeep    []corev1.LocalObjectReference
+	EmptyList        func() T
+	PreDeletionSteps func(context.Context, client.Object) (bool, error)
 }
 
 // NewOrphanCleaner removes redundant objects in the given target namespace.
@@ -51,6 +53,9 @@ func (c *orphanCleaner[T]) items(list T) []client.Object {
 
 func (c *orphanCleaner[T]) Cleanup(ctx context.Context) ([]Result, error) {
 	results := []Result{}
+	if c.cleanerType.EmptyList == nil {
+		return nil, fmt.Errorf("%w: orphan cleaner is missing empty list definition", ErrOrphanCleanup)
+	}
 	objList := c.cleanerType.EmptyList()
 	cl := c.cluster.GetClient()
 	if err := cl.List(ctx, objList,
@@ -62,15 +67,48 @@ func (c *orphanCleaner[T]) Cleanup(ctx context.Context) ([]Result, error) {
 	}
 	for _, obj := range c.items(objList) {
 		if !slices.ContainsFunc(c.cleanerType.ObjectsToKeep, func(ref corev1.LocalObjectReference) bool { return obj.GetName() == ref.Name }) {
+			// exec delete preparation steps
+			if c.cleanerType.PreDeletionSteps != nil {
+				proceedWithDeletion, err := c.cleanerType.PreDeletionSteps(ctx, obj)
+				if err != nil {
+					results = append(results, c.deletionError(obj, err))
+					continue
+				}
+				if !proceedWithDeletion {
+					results = append(results, c.deletionPrepared(obj))
+					continue
+				}
+			}
+			// exec delete
 			if err := cl.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
-				results = append(results, c.cleanupErrorResult(obj, err))
+				results = append(results, c.deletionError(obj, err))
 			}
 		}
 	}
 	return results, nil
 }
 
-func (c *orphanCleaner[T]) cleanupErrorResult(obj client.Object, err error) Result {
+func (c *orphanCleaner[T]) deletionPrepared(obj client.Object) Result {
+	return Result{
+		Object: &managedObject{
+			object:         obj,
+			statusFunc:     cleanupPreparedStatus,
+			deletionPolicy: Delete,
+		},
+		Cluster:         c.cluster,
+		OperationResult: OperationResultDeletionRequested,
+	}
+}
+
+func cleanupPreparedStatus(_ client.Object, rl apiv1alpha1.ResourceLocation) Status {
+	return Status{
+		Phase:    apiv1alpha1.Terminating,
+		Message:  "Orphan cleanup prepared",
+		Location: rl,
+	}
+}
+
+func (c *orphanCleaner[T]) deletionError(obj client.Object, err error) Result {
 	return Result{
 		Object: &managedObject{
 			object:         obj,
