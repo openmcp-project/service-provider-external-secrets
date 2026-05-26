@@ -180,8 +180,8 @@ func NewHelmReleaseCleaner(cluster ManagedCluster, namespace string) OrphanClean
 // NewOCIRepositoryCleaner removes redundant OCIRepository objects in the given target namespace.
 // Any OCIRepository labeled as managed by sp-external-secrets with an outdated name will be removed.
 // This allows internal renaming when required.
-func NewOCIRepositoryCleaner(platformCluster ManagedCluster, tenantNamespace string) OrphanCleaner {
-	return NewOrphanCleaner(platformCluster, tenantNamespace, cleanerType[*sourcev1.OCIRepositoryList]{
+func NewOCIRepositoryCleaner(cluster ManagedCluster, tenantNamespace string) OrphanCleaner {
+	return NewOrphanCleaner(cluster, tenantNamespace, cleanerType[*sourcev1.OCIRepositoryList]{
 		EmptyList: func() *sourcev1.OCIRepositoryList {
 			return &sourcev1.OCIRepositoryList{}
 		},
