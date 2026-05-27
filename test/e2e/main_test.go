@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 		ClusterProviders: []providers.ClusterProviderSetup{
 			{
 				Name:  "kind",
-				Image: "ghcr.io/openmcp-project/images/cluster-provider-kind:v0.3.1",
+				Image: "ghcr.io/openmcp-project/images/cluster-provider-kind:v0.4.0",
 			},
 		},
 		ServiceProviders: []providers.ServiceProviderSetup{
