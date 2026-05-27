@@ -8,14 +8,12 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 
-	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 )
@@ -42,7 +40,7 @@ type ManageFluxResourcesParams struct {
 	// Interval defines OCIRepository and HelmRelease reconcile intervals
 	Interval time.Duration
 	// ClusterContext of the current reconciliation context
-	ClusterContext serviceprovider.ClusterContext
+	ClusterContext clusteraccess.ClusterContext
 	// RequestedVersion is the version of External Secrets Operator that a user requested through the onboarding API
 	RequestedVersion apiv1alpha1.ExternalSecretsVersion
 }
@@ -160,50 +158,4 @@ func FluxStatus(o client.Object, rl apiv1alpha1.ResourceLocation) Status {
 		Message:  "Resource is not ready",
 		Location: rl,
 	}
-}
-
-// NewHelmReleaseCleaner removes redundant HelmRelease objects in the given target namespace.
-// Any HelmRelease labeled as managed by sp-external-secrets with an outdated name will be removed.
-// This allows internal renaming when required.
-func NewHelmReleaseCleaner(cluster ManagedCluster, namespace string) OrphanCleaner {
-	return NewOrphanCleaner(cluster, namespace, cleanerType[*helmv2.HelmReleaseList]{
-		EmptyList: func() *helmv2.HelmReleaseList {
-			return &helmv2.HelmReleaseList{}
-		},
-		ObjectsToKeep: []corev1.LocalObjectReference{
-			{
-				Name: HelmReleaseName,
-			},
-		},
-		PreDeletionSteps: func(ctx context.Context, o client.Object) (bool, error) {
-			helmRel, ok := o.(*helmv2.HelmRelease)
-			if !ok {
-				return false, fmt.Errorf("%w: failed type conversion", ErrOrphanCleanup)
-			}
-			opResult, err := controllerutil.CreateOrUpdate(ctx, cluster.GetClient(), helmRel, func() error {
-				helmRel.Spec.Suspend = true
-				return nil
-			})
-			if err != nil {
-				return false, fmt.Errorf("%w: pre delete step failed", err)
-			}
-			return opResult == controllerutil.OperationResultNone, nil
-		},
-	})
-}
-
-// NewOCIRepositoryCleaner removes redundant OCIRepository objects in the given target namespace.
-// Any OCIRepository labeled as managed by sp-external-secrets with an outdated name will be removed.
-// This allows internal renaming when required.
-func NewOCIRepositoryCleaner(cluster ManagedCluster, tenantNamespace string) OrphanCleaner {
-	return NewOrphanCleaner(cluster, tenantNamespace, cleanerType[*sourcev1.OCIRepositoryList]{
-		EmptyList: func() *sourcev1.OCIRepositoryList {
-			return &sourcev1.OCIRepositoryList{}
-		},
-		ObjectsToKeep: []corev1.LocalObjectReference{
-			{
-				Name: OCIRepositoryName,
-			},
-		},
-	})
 }

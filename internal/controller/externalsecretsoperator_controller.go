@@ -34,6 +34,7 @@ import (
 
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
@@ -55,7 +56,7 @@ type ExternalSecretsOperatorReconciler struct {
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters serviceprovider.ClusterContext) (ctrl.Result, error) {
+func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
@@ -75,7 +76,7 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 }
 
 // Delete is called on every delete event
-func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters serviceprovider.ClusterContext) (ctrl.Result, error) {
+func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusTerminating(obj)
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
@@ -120,7 +121,7 @@ func userErrorMessage(err error) string {
 	return strings.Join(errorMessages, "; ")
 }
 
-func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters serviceprovider.ClusterContext) (externalsecrets.Manager, error) {
+func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (externalsecrets.Manager, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
@@ -178,9 +179,6 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
 
-	ociRepoCleaner := externalsecrets.NewOCIRepositoryCleaner(platformCluster, tenantNamespace)
-	helmReleaseCleaner := externalsecrets.NewHelmReleaseCleaner(platformCluster, tenantNamespace)
-
 	platformSecretCleaner := externalsecrets.NewSecretCleaner(platformCluster, tenantNamespace, []corev1.LocalObjectReference{
 		{
 			Name: prefixedChartPullSecret,
@@ -188,8 +186,6 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	})
 	controlPlaneSecretCleaner := externalsecrets.NewSecretCleaner(mcpCluster, externalSecretsNamespace, helmValues.Global.ImagePullSecrets)
 
-	mgr.AddCleaner(ociRepoCleaner)
-	mgr.AddCleaner(helmReleaseCleaner)
 	mgr.AddCleaner(platformSecretCleaner)
 	mgr.AddCleaner(controlPlaneSecretCleaner)
 

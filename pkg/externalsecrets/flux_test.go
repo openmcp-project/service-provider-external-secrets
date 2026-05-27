@@ -15,7 +15,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 )
@@ -48,7 +48,7 @@ func TestManageFluxResources(t *testing.T) {
 					},
 				},
 				Interval: time.Hour,
-				ClusterContext: serviceprovider.ClusterContext{
+				ClusterContext: clusteraccess.ClusterContext{
 					MCPAccessSecretKey: client.ObjectKey{
 						Namespace: testNamespace,
 						Name:      testKubeconfigKey,
