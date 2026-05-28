@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/fluxcd/pkg/apis/meta v1.28.0
 	github.com/openmcp-project/controller-utils v0.29.0
-	github.com/openmcp-project/opencontrolplane-runtime v0.2.0
+	github.com/openmcp-project/opencontrolplane-runtime v0.2.1
 	github.com/openmcp-project/openmcp-operator/api v0.20.0
 	github.com/openmcp-project/openmcp-operator/lib v0.20.0
 	github.com/stretchr/testify v1.11.1

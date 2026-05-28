@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	flag "github.com/spf13/pflag"
@@ -45,6 +46,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -58,9 +60,15 @@ import (
 	externalsecretsoperatorsv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/internal/controller"
 
+	localaccess "github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
+
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	// +kubebuilder:scaffold:imports
+)
+
+const (
+	debugEnvVar = "DEV_DEBUG"
 )
 
 var (
@@ -245,9 +253,7 @@ func main() {
 	ctx := context.Background()
 	// init (job that installs CRDs)
 	if command == "init" {
-		onboardingCluster, err := clusterAccessManager.CreateAndWaitForCluster(ctx, "onboarding-init",
-			clustersv1alpha1.PURPOSE_ONBOARDING, onboardingScheme, adminPermissions)
-
+		onboardingCluster, err := requestOnboardingClusterAccess(ctx, clusterAccessManager, platformCluster, adminPermissions, "init")
 		if err != nil {
 			setupLog.Error(err, "Failed to create and wait for onboarding cluster access")
 		}
@@ -274,8 +280,7 @@ func main() {
 		return
 	}
 	// run (sp controller deployment)
-	onboardingCluster, err := clusterAccessManager.CreateAndWaitForCluster(ctx, "onboarding-run",
-		clustersv1alpha1.PURPOSE_ONBOARDING, onboardingScheme, adminPermissions)
+	onboardingCluster, err := requestOnboardingClusterAccess(ctx, clusterAccessManager, platformCluster, adminPermissions, "run")
 	if err != nil {
 		setupLog.Error(err, "Failed to create and wait for onboarding cluster access")
 	}
@@ -375,4 +380,34 @@ func initializePlatformCluster() (*clusters.Cluster, error) {
 		return nil, err
 	}
 	return platformCluster, nil
+}
+
+func requestOnboardingClusterAccess(ctx context.Context, mgr clusteraccess.Manager, platformCluster *clusters.Cluster, permissions []clustersv1alpha1.PermissionsRequest, cmdSuffix string) (*clusters.Cluster, error) {
+	cluster, err := mgr.CreateAndWaitForCluster(ctx, "onboarding-"+cmdSuffix,
+		clustersv1alpha1.PURPOSE_ONBOARDING, onboardingScheme, permissions)
+	if err != nil {
+		return cluster, err
+	}
+	if debugEnabled() {
+		return patchOnboardingClient(ctx, platformCluster, cluster, "onboarding-"+cmdSuffix)
+	}
+	return cluster, nil
+}
+
+func patchOnboardingClient(ctx context.Context, platformCluster *clusters.Cluster, onboardingCluster *clusters.Cluster, cmdSuffix string) (*clusters.Cluster, error) {
+	onboardingAr := &clustersv1alpha1.AccessRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusteraccess.StableRequestNameFromLocalName("fooservice.foo.services.open-control-plane.io", cmdSuffix),
+			Namespace: os.Getenv("POD_NAMESPACE"),
+		},
+	}
+	if err := platformCluster.Client().Get(ctx, client.ObjectKeyFromObject(onboardingAr), onboardingAr); err != nil {
+		return onboardingCluster, err
+	}
+	return localaccess.MustPatchClusterClient(ctx, onboardingAr, onboardingCluster), nil
+}
+
+func debugEnabled() bool {
+	v := strings.ToLower(os.Getenv(debugEnvVar))
+	return v == "1" || v == "true"
 }
