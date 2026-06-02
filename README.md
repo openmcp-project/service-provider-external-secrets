@@ -108,9 +108,9 @@ A version item is defined as follows:
 |-------|------|-------------|
 | `version` | string | The External Secrets Operator version that this item defines |
 | `chartVersion` | string | The External Secrets Operator Helm chart version to install |
-| `chartUrl` | string | OCI registry URL for the Helm chart |
+| `chartURL` | string | OCI registry URL for the Helm chart |
 | `chartPullSecret` | string | Secret name for chart registry authentication |
-| `values` | object | Custom Helm values for the External Secrets Operator deployment |
+| `helmValues` | object | Custom Helm values for the External Secrets Operator deployment |
 
 For private and air-gapped environments, image locations and pull secrets can be adjusted via `spec.helmValues` global settings (see the example above).
 Pull secrets will be synced to each tenant control plane.

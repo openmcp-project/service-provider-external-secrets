@@ -17,7 +17,7 @@ import (
 // ErrOrphanCleanup is an user-facing error that indicates orphan cleanup failures
 var ErrOrphanCleanup = errors.New("orphan cleanup failed")
 
-var _ OrphanCleaner = &orphanCleaner[*corev1.PodList]{}
+var _ OrphanCleaner = &orphanCleaner[*corev1.SecretList]{}
 
 type orphanCleaner[T client.ObjectList] struct {
 	cluster     ManagedCluster
