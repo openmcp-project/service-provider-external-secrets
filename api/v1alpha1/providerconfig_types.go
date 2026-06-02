@@ -28,9 +28,9 @@ import (
 type ProviderConfigSpec struct {
 	// Versions specify the valid inputs for the Flux.Spec.Version field.
 	// +required
-	// +kubebuilder:validation:MinItems=1                                                                                                           
-    // +listType=map                                                                                                                                
-    // +listMapKey=version
+	// +kubebuilder:validation:MinItems=1
+	// +listType=map
+	// +listMapKey=version
 	Versions []ExternalSecretsVersion `json:"versions"`
 
 	// PollInterval at which the controller requeues to detect drift
