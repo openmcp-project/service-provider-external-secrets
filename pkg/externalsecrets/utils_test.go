@@ -9,6 +9,7 @@ import (
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -42,7 +43,8 @@ func ExecApply(t *testing.T, clusters []ManagedCluster, expectedManagedObjects i
 	for _, cluster := range clusters {
 		mgr.AddCluster(cluster)
 	}
-	results := mgr.Apply(context.TODO())
+	results, err := mgr.Apply(context.TODO())
+	require.NoError(t, err)
 	return assertResult(t, results, expectedManagedObjects, wantErrors)
 }
 

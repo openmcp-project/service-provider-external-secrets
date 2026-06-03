@@ -53,9 +53,11 @@ spec:
 |-------|------|-------------|
 | `spec.version` | string | The Helm chart version of External Secrets Operator to install |
 
+Note that any version that should be available to users has to be defined in the `ProviderConfig`.
+
 ### ProviderConfig
 
-The `ProviderConfig` resource configures global settings for all External Secret Operator deployments.
+The `ProviderConfig` resource configures deployment settings for each version of External Secret Operator that the service provider supports.
 
 ```yaml
 apiVersion: external-secrets.services.openmcp.cloud/v1alpha1
@@ -63,23 +65,52 @@ kind: ProviderConfig
 metadata:
   name: externalsecretsoperator
 spec:
-  pollInterval: 1m
-  chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
-  chartPullSecret: privateregcred
-  helmValues:
-    namespaceOverride: eso-system
-    global:
-      repository: ghcr.io/external-secrets/external-secrets
-      imagePullSecrets:
-        - name: privateregcred
+  versions:
+    - version: "v2.1.0"
+      chartVersion: "2.1.0"
+      chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
+      chartPullSecret: privateregcred
+      helmValues:
+        namespaceOverride: eso-system
+        global:
+          repository: ghcr.io/external-secrets/external-secrets
+          imagePullSecrets:
+            - name: privateregcred
+    - version: "v2.2.0"
+      chartVersion: "2.2.0"
+      chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
+      helmValues:
+        namespaceOverride: eso-system
+        image:
+          repository: ghcr.io/external-secrets/external-secrets
+          # -- The image tag to use. The default is the chart appVersion.
+          tag: "v2.2.0"
+        webhook:
+          image:
+            repository: ghcr.io/external-secrets/external-secrets
+            # -- The image tag to use. The default is the chart appVersion.
+            tag: "v2.2.0"
+        certController:
+          image:
+            repository: ghcr.io/external-secrets/external-secrets
+            # -- The image tag to use. The default is the chart appVersion.
+            tag: "v2.2.0"
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spec.chartURL` | string | OCI registry URL for the External Secrets Operator Helm chart |
-| `spec.chartPullSecret` | string | Secret name for chart registry authentication |
 | `spec.pollInterval` | duration | periodic reconcile interval to prevent drift of managed MCP resources |
-| `spec.helmValues` | object | Custom Helm values for the External Secrets Operator deployment |
+| `spec.versions` | array | The versions of Flux that can be installed |
+
+A version item is defined as follows:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | string | The External Secrets Operator version that this item defines |
+| `chartVersion` | string | The External Secrets Operator Helm chart version to install |
+| `chartURL` | string | OCI registry URL for the Helm chart |
+| `chartPullSecret` | string | Secret name for chart registry authentication |
+| `helmValues` | object | Custom Helm values for the External Secrets Operator deployment |
 
 For private and air-gapped environments, image locations and pull secrets can be adjusted via `spec.helmValues` global settings (see the example above).
 Pull secrets will be synced to each tenant control plane.

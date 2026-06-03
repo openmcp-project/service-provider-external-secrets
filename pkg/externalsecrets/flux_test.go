@@ -15,8 +15,9 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
 const (
@@ -46,29 +47,23 @@ func TestManageFluxResources(t *testing.T) {
 						Version: "v2.2.0",
 					},
 				},
-				ProviderConfig: &apiv1alpha1.ProviderConfig{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test",
-						Namespace: testNamespace,
-					},
-					Spec: apiv1alpha1.ProviderConfigSpec{
-						ChartURL:        new(testCharURL),
-						ChartPullSecret: new(testChartPullSecret),
-						HelmValues: &apiextensionv1.JSON{
-							Raw: []byte(`{"foo":"bar"}`),
-						},
-						PollInterval: &metav1.Duration{
-							Duration: time.Hour,
-						},
-					},
-				},
-				ClusterContext: spruntime.ClusterContext{
+				Interval: time.Hour,
+				ClusterContext: clusteraccess.ClusterContext{
 					MCPAccessSecretKey: client.ObjectKey{
 						Namespace: testNamespace,
 						Name:      testKubeconfigKey,
 					},
 				},
 				ChartPullSecretName: "secret-copy",
+				RequestedVersion: apiv1alpha1.ExternalSecretsVersion{
+					Version:         "v2.2.0",
+					ChartVersion:    "v2.2.0",
+					ChartURL:        new(testCharURL),
+					ChartPullSecret: testChartPullSecret,
+					HelmValues: &apiextensionv1.JSON{
+						Raw: []byte(`{"foo":"bar"}`),
+					},
+				},
 			}},
 	}
 	for _, tt := range tests {
@@ -80,26 +75,26 @@ func TestManageFluxResources(t *testing.T) {
 			// assert oci repo
 			ociRepo := &sourcev1.OCIRepository{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      tt.params.Obj.Name,
+					Name:      OCIRepositoryName,
 					Namespace: testNamespace,
 				},
 			}
 			require.NoError(t, tt.params.Cluster.GetClient().Get(context.TODO(), client.ObjectKeyFromObject(ociRepo), ociRepo))
-			assert.Equal(t, tt.params.ProviderConfig.Spec.ChartURL, ptr.To(ociRepo.Spec.URL))
+			assert.Equal(t, tt.params.RequestedVersion.ChartURL, ptr.To(ociRepo.Spec.URL))
 			assert.Equal(t, tt.params.ChartPullSecretName, ociRepo.Spec.SecretRef.Name)
 			assert.Equal(t, tt.params.Obj.Spec.Version, ociRepo.Spec.Reference.Tag)
-			assert.Equal(t, tt.params.ProviderConfig.Spec.PollInterval.Duration, ociRepo.Spec.Interval.Duration)
+			assert.Equal(t, tt.params.Interval, ociRepo.Spec.Interval.Duration)
 
 			// assert helm release
 			helmRelease := &helmv2.HelmRelease{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      tt.params.Obj.Name,
+					Name:      HelmReleaseName,
 					Namespace: testNamespace,
 				},
 			}
 			require.NoError(t, tt.params.Cluster.GetClient().Get(context.TODO(), client.ObjectKeyFromObject(helmRelease), helmRelease))
-			assert.Equal(t, tt.params.ProviderConfig.Spec.HelmValues, helmRelease.Spec.Values)
-			assert.Equal(t, tt.params.ProviderConfig.Spec.PollInterval.Duration, helmRelease.Spec.Interval.Duration)
+			assert.Equal(t, tt.params.RequestedVersion.HelmValues, helmRelease.Spec.Values)
+			assert.Equal(t, tt.params.Interval, helmRelease.Spec.Interval.Duration)
 			assert.Equal(t, tt.params.MCPNamespace, helmRelease.Spec.StorageNamespace)
 			assert.Equal(t, tt.params.MCPNamespace, helmRelease.Spec.TargetNamespace)
 			assert.Equal(t, tt.params.ClusterContext.MCPAccessSecretKey.Name, helmRelease.Spec.KubeConfig.SecretRef.Name)

@@ -3,6 +3,7 @@ package externalsecrets
 import (
 	"context"
 	"fmt"
+	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/apis/meta"
@@ -12,8 +13,18 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
+)
+
+const (
+	// DefaultNamespace is the default namespace where External Secrets Operator components are deployed on the ManagedControlPlane
+	DefaultNamespace = "external-secrets"
+	// OCIRepositoryName is the name of the External Secrets Operator OCIRepository resource
+	OCIRepositoryName = "external-secrets"
+	// HelmReleaseName is the name of the External Secrets Operator HelmRelease resource
+	HelmReleaseName = "external-secrets"
 )
 
 // ManageFluxResourcesParams groups all parameters to create the required manage flux resources
@@ -26,17 +37,19 @@ type ManageFluxResourcesParams struct {
 	ChartPullSecretName string
 	// Obj is the tenant API object that is being reconciled
 	Obj *apiv1alpha1.ExternalSecretsOperator
-	// ProviderConfig of the current reconciliation context
-	ProviderConfig *apiv1alpha1.ProviderConfig
+	// Interval defines OCIRepository and HelmRelease reconcile intervals
+	Interval time.Duration
 	// ClusterContext of the current reconciliation context
-	ClusterContext spruntime.ClusterContext
+	ClusterContext clusteraccess.ClusterContext
+	// RequestedVersion is the version of External Secrets Operator that a user requested through the onboarding API
+	RequestedVersion apiv1alpha1.ExternalSecretsVersion
 }
 
 // ManageFluxResources configures OCIRepo and HelmRelease
 func ManageFluxResources(p ManageFluxResourcesParams) {
 	ociRepo := NewManagedObject(&sourcev1.OCIRepository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      p.Obj.Name,
+			Name:      OCIRepositoryName,
 			Namespace: p.Cluster.GetDefaultNamespace(),
 		},
 	}, ManagedObjectContext{
@@ -45,11 +58,15 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 			if !ok {
 				return fmt.Errorf("expected *sourcev1.OCIRepository, got %T", o)
 			}
+			if p.RequestedVersion.ChartURL == nil {
+				// this should never happen as long as defaulting works properly
+				return fmt.Errorf("missing ChartURL definition for Flux version %s", p.RequestedVersion.Version)
+			}
 			ociRepo.Spec = sourcev1.OCIRepositorySpec{
-				Interval: metav1.Duration{Duration: p.ProviderConfig.PollInterval()},
-				URL:      *p.ProviderConfig.Spec.ChartURL,
+				Interval: metav1.Duration{Duration: p.Interval},
+				URL:      *p.RequestedVersion.ChartURL,
 				Reference: &sourcev1.OCIRepositoryRef{
-					Tag: p.Obj.Spec.Version,
+					Tag: p.RequestedVersion.ChartVersion,
 				},
 				// required to always select the correct OCI layer
 				// this mitigates non-deterministic layer ordering across different eso versions
@@ -75,7 +92,7 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 
 	helmRelease := NewManagedObject(&helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      p.Obj.Name,
+			Name:      HelmReleaseName,
 			Namespace: p.Cluster.GetDefaultNamespace(),
 		},
 	}, ManagedObjectContext{
@@ -85,10 +102,10 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 				return fmt.Errorf("expected *helmv2.HelmRelease, got %T", o)
 			}
 			helmRelease.Spec = helmv2.HelmReleaseSpec{
-				Interval: metav1.Duration{Duration: p.ProviderConfig.PollInterval()},
+				Interval: metav1.Duration{Duration: p.Interval},
 				ChartRef: &helmv2.CrossNamespaceSourceReference{
 					Kind:      "OCIRepository",
-					Name:      p.Obj.Name,
+					Name:      OCIRepositoryName,
 					Namespace: p.Cluster.GetDefaultNamespace(),
 				},
 				KubeConfig: &meta.KubeConfigReference{
@@ -103,7 +120,10 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 					},
 					CreateNamespace: true,
 				},
-				Values:           p.ProviderConfig.Spec.HelmValues,
+				DriftDetection: &helmv2.DriftDetection{
+					Mode: helmv2.DriftDetectionEnabled,
+				},
+				Values:           p.RequestedVersion.HelmValues,
 				TargetNamespace:  p.MCPNamespace,
 				StorageNamespace: p.MCPNamespace,
 			}

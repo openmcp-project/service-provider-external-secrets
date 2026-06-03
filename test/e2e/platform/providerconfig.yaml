@@ -3,12 +3,33 @@ kind: ProviderConfig
 metadata:
   name: externalsecretsoperator
 spec:
-  pollInterval: 1m
-  chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
-  chartPullSecret: privateregcred
-  helmValues:
-    namespaceOverride: eso-system
-    global:
-      repository: ghcr.io/external-secrets/external-secrets
-      imagePullSecrets:
-        - name: privateregcred
+  pollInterval: 10s
+  versions:
+    - version: "v2.1.0"
+      chartVersion: "2.1.0"
+      chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
+      chartPullSecret: privateregcred
+      helmValues:
+        namespaceOverride: eso-system
+        global:
+          repository: ghcr.io/external-secrets/external-secrets
+          imagePullSecrets:
+            - name: privateregcred
+    - version: "v2.2.0"
+      chartVersion: "2.2.0"
+      chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
+      helmValues:
+        image:
+          repository: ghcr.io/external-secrets/external-secrets
+          # -- The image tag to use. The default is the chart appVersion.
+          tag: "v2.2.0"
+        webhook:
+          image:
+            repository: ghcr.io/external-secrets/external-secrets
+            # -- The image tag to use. The default is the chart appVersion.
+            tag: "v2.2.0"
+        certController:
+          image:
+            repository: ghcr.io/external-secrets/external-secrets
+            # -- The image tag to use. The default is the chart appVersion.
+            tag: "v2.2.0"

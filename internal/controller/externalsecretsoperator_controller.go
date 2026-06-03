@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -31,12 +32,18 @@ import (
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
+	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
-	"github.com/openmcp-project/service-provider-external-secrets/pkg/spruntime"
 )
 
-const namespaceExternalSecrets = "external-secrets"
+const conditionReasonError = "ReconcileError"
+
+// ErrManagedResources is an end-user facing error if errors are present inside ExternalSecretsOperator.Status.ManagedResources
+var ErrManagedResources error = errors.New("resources contain reconcile errors")
 
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
@@ -49,62 +56,87 @@ type ExternalSecretsOperatorReconciler struct {
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
-	spruntime.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
+	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
-		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
-		return ctrl.Result{}, err
+		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
+		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
-	results := mgr.Apply(ctx)
+	results, err := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
 	if allResourcesReady(managedResources) {
-		spruntime.StatusReady(obj)
+		serviceprovider.StatusReady(obj)
 	}
-	if resultContainsErrors {
-		resultWithErrors := errors.New("resources contain reconcile errors")
-		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
-		return ctrl.Result{}, resultWithErrors
+	if resultContainsErrors || err != nil {
+		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
 	}
 	return ctrl.Result{}, nil
 }
 
 // Delete is called on every delete event
-func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (ctrl.Result, error) {
-	spruntime.StatusTerminating(obj)
+func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
+	serviceprovider.StatusTerminating(obj)
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
-		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
-		return ctrl.Result{}, err
+		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
+		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
-	results := mgr.Delete(ctx)
+	results, err := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
 	if externalsecrets.AllDeleted(results) {
 		return ctrl.Result{}, nil
 	}
-	if resultContainsErrors {
-		resultWithErrors := errors.New("resources contain reconcile errors")
-		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
-		return ctrl.Result{}, resultWithErrors
+	if resultContainsErrors || err != nil {
+		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
 	}
 	return ctrl.Result{
 		RequeueAfter: time.Second * 5,
 	}, nil
 }
 
-func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters spruntime.ClusterContext) (externalsecrets.Manager, error) {
+func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, resourceErrors bool, err error) error {
+	if resourceErrors {
+		err = errors.Join(ErrManagedResources, err)
+	}
+	serviceprovider.StatusProgressing(obj, conditionReasonError, userErrorMessage(err))
+	return ctrlerrors.IgnoreInvalidUserInput(err)
+}
+
+// userErrorMessage constructs an end-user facing error message.
+// Only end-user errors are processed.
+func userErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	errorMessages := []string{}
+	if errors.Is(err, ErrManagedResources) {
+		errorMessages = append(errorMessages, ErrManagedResources.Error())
+	}
+	if errors.Is(err, externalsecrets.ErrOrphanCleanup) {
+		errorMessages = append(errorMessages, externalsecrets.ErrOrphanCleanup.Error())
+	}
+	return strings.Join(errorMessages, "; ")
+}
+
+func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (externalsecrets.Manager, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
 	}
-	helmValues, err := externalsecrets.ExtractHelmValues(pc.Spec.HelmValues)
+	// select the requested version from the provider config
+	esoVersion, err := selectExternalSecretsVersion(obj.Spec.Version, pc)
+	if err != nil {
+		return nil, err
+	}
+	helmValues, err := externalsecrets.ExtractHelmValues(esoVersion.HelmValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.PlatformCluster)
-	externalSecretsNamespace := namespaceExternalSecrets
+	externalSecretsNamespace := externalsecrets.DefaultNamespace
 	if helmValues.NamespaceOverride != "" {
 		externalSecretsNamespace = helmValues.NamespaceOverride
 	}
@@ -122,12 +154,12 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	}
 	// sync chart pull secrets within platform cluster from pod namespace to tenant namespace
 	var prefixedChartPullSecret string
-	if pc.Spec.ChartPullSecret != nil {
-		prefixedChartPullSecret, err = externalsecrets.PrefixSecretName(*pc.Spec.ChartPullSecret)
+	if esoVersion.ChartPullSecret != "" {
+		prefixedChartPullSecret, err = externalsecrets.PrefixSecretName(esoVersion.ChartPullSecret)
 		if err != nil {
 			return nil, fmt.Errorf("error generating secret name: %w", err)
 		}
-		externalsecrets.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, externalsecrets.SecretCopyConfig{
+		externalsecrets.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: esoVersion.ChartPullSecret}, externalsecrets.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: tenantNamespace,
@@ -139,13 +171,34 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 		MCPNamespace:        externalSecretsNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
-		ProviderConfig:      pc,
+		Interval:            pc.PollInterval(),
 		ClusterContext:      clusters,
+		RequestedVersion:    esoVersion,
 	})
 	mgr := externalsecrets.NewManager()
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
+
+	platformSecretCleaner := externalsecrets.NewSecretCleaner(platformCluster, tenantNamespace, []corev1.LocalObjectReference{
+		{
+			Name: prefixedChartPullSecret,
+		},
+	})
+	controlPlaneSecretCleaner := externalsecrets.NewSecretCleaner(mcpCluster, externalSecretsNamespace, helmValues.Global.ImagePullSecrets)
+
+	mgr.AddCleaner(platformSecretCleaner)
+	mgr.AddCleaner(controlPlaneSecretCleaner)
+
 	return mgr, nil
+}
+
+func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.ExternalSecretsVersion, error) {
+	for _, configVersion := range pc.Spec.Versions {
+		if configVersion.Version == requestedVersion {
+			return configVersion, nil
+		}
+	}
+	return apiv1alpha1.ExternalSecretsVersion{}, fmt.Errorf("%w: requested version (%s) is not available", ctrlerrors.ErrInvalidUserInput, requestedVersion)
 }
 
 func resultsToResources(ctx context.Context, results []externalsecrets.Result) ([]apiv1alpha1.ManagedResource, bool) {

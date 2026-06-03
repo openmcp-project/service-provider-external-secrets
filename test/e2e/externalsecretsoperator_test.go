@@ -2,14 +2,18 @@ package e2e
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
+	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
 	"sigs.k8s.io/e2e-framework/klient/wait"
 	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
@@ -59,12 +63,30 @@ func TestServiceProvider(t *testing.T) {
 				return ctx
 			},
 		).
-		Assess("Platform Cluster: chart pull secret sync to tenant namespaces", chartSecretSynced("sp-eso-privateregcred")).
-		Assess("MCP A: image pull secrets are synced", imagePullSecretSynced(mcpA, client.ObjectKey{Name: "privateregcred", Namespace: "eso-system"})).
-		Assess("MCP B: image pull secrets are synced", imagePullSecretSynced(mcpB, client.ObjectKey{Name: "privateregcred", Namespace: "eso-system"})).
+		Assess("platform cluster resources tenant A", assesPlatformResources(mcpA, "sp-eso-privateregcred")).
+		Assess("platform cluster resources tenant B", assesPlatformResources(mcpB, "")).
+		Assess("ManagedControlPlane resources have been created", func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+			// we only need to test tenant A because B uses an ESO version without pull secrets (see ProviderConfig)
+			mcp, err := clusterutils.MCPConfig(ctx, c, mcpA)
+			if err != nil {
+				t.Error(err)
+				return ctx
+			}
+			imagePullSecret := &corev1.Secret{}
+			imagePullSecret.SetName("privateregcred")
+			// tenant A uses an ESO version with namespace override (see ProviderConfig)
+			imagePullSecret.SetNamespace("eso-system")
+			list := &corev1.SecretList{
+				Items: []corev1.Secret{*imagePullSecret},
+			}
+			if err := wait.For(conditions.New(mcp.Client().Resources()).ResourcesFound(list), wait.WithTimeout(2*time.Minute)); err != nil {
+				t.Errorf("image pull secret not found on control plane: %v", err)
+			}
+			return ctx
+		}).
 		Assess("MCP A: domain objects can be created", createSecretStoreAndExternalSecret(mcpA, &mcpAObjects)).
-		Assess("MCP B: domain objects can be created", createSecretStoreAndExternalSecret(mcpB, &mcpBObjects)).
 		Assess("MCP A: secret created from fake secret store", validateExternalSecret(mcpA)).
+		Assess("MCP B: domain objects can be created", createSecretStoreAndExternalSecret(mcpB, &mcpBObjects)).
 		Assess("MCP B: secret created from fake secret store", validateExternalSecret(mcpB)).
 		Teardown(cleanupMCPDomainObjects(mcpA, &mcpAObjects)).
 		Teardown(cleanupMCPDomainObjects(mcpB, &mcpBObjects)).
@@ -84,6 +106,40 @@ func TestServiceProvider(t *testing.T) {
 		Teardown(providers.DeleteMCP(mcpA, wait.WithTimeout(5*time.Minute))).
 		Teardown(providers.DeleteMCP(mcpB, wait.WithTimeout(5*time.Minute)))
 	testenv.Test(t, basicProviderTest.Feature())
+}
+
+func assesPlatformResources(mcpName, chartPullSecret string) features.Func {
+	return func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+		tenantNamespace, err := libutils.StableMCPNamespace(mcpName, "default")
+		if err != nil {
+			t.Errorf("failed to get tenant namespace: %v", err)
+			return ctx
+		}
+		ociRepo := &sourcev1.OCIRepository{}
+		ociRepo.SetName(externalsecrets.OCIRepositoryName)
+		ociRepo.SetNamespace(tenantNamespace)
+		if err := wait.For(openmcpconditions.Match(ociRepo, c, "Ready", corev1.ConditionTrue), wait.WithTimeout(2*time.Minute)); err != nil {
+			t.Errorf("OCIRepository not ready: %v", err)
+		}
+		helmRelease := &helmv2.HelmRelease{}
+		helmRelease.SetName(externalsecrets.HelmReleaseName)
+		helmRelease.SetNamespace(tenantNamespace)
+		if err := wait.For(openmcpconditions.Match(helmRelease, c, "Ready", corev1.ConditionTrue), wait.WithTimeout(2*time.Minute)); err != nil {
+			t.Errorf("HelmRelease not ready: %v", err)
+		}
+		if chartPullSecret != "" {
+			chartSecret := &corev1.Secret{}
+			chartSecret.SetName(chartPullSecret)
+			chartSecret.SetNamespace(tenantNamespace)
+			pullSecrets := &corev1.SecretList{
+				Items: []corev1.Secret{*chartSecret},
+			}
+			if err := wait.For(conditions.New(c.Client().Resources()).ResourcesFound(pullSecrets), wait.WithTimeout(2*time.Minute)); err != nil {
+				t.Errorf("pull secret not found: %v", err)
+			}
+		}
+		return ctx
+	}
 }
 
 func createSecretStoreAndExternalSecret(mcpName string, mcpList *unstructured.UnstructuredList) features.Func {
@@ -141,58 +197,6 @@ func cleanupMCPDomainObjects(mcpName string, mcpList *unstructured.UnstructuredL
 			if err := resources.DeleteObject(ctx, mcp, &obj, wait.WithTimeout(time.Minute)); err != nil {
 				t.Errorf("failed to delete mcp object: %v", err)
 			}
-		}
-		return ctx
-	}
-}
-
-// verify given secret exists on mcp
-func imagePullSecretSynced(mcpName string, secret client.ObjectKey) features.Func {
-	return func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
-		mcp, err := clusterutils.MCPConfig(ctx, c, mcpName)
-		if err != nil {
-			t.Error(err)
-			return ctx
-		}
-		secList := &corev1.SecretList{
-			Items: []corev1.Secret{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      secret.Name,
-						Namespace: secret.Namespace,
-					},
-				},
-			},
-		}
-		if err := wait.For(conditions.New(mcp.Client().Resources()).ResourcesFound(secList)); err != nil {
-			t.Error(err)
-		}
-		return ctx
-	}
-}
-
-// verify given secret exists in every tenant namespace on the platform cluster
-func chartSecretSynced(secretName string) features.Func {
-	return func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
-		secList := &corev1.SecretList{}
-		namespaces := &corev1.NamespaceList{}
-		if err := c.Client().Resources().List(ctx, namespaces); err != nil {
-			t.Error(err)
-			return ctx
-		}
-		for _, ns := range namespaces.Items {
-			if !strings.HasPrefix(ns.Name, "mcp--") {
-				continue
-			}
-			secList.Items = append(secList.Items, corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secretName,
-					Namespace: ns.Name,
-				},
-			})
-		}
-		if err := wait.For(conditions.New(c.Client().Resources()).ResourcesFound(secList)); err != nil {
-			t.Error(err)
 		}
 		return ctx
 	}
