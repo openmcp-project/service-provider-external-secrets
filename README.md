@@ -4,6 +4,23 @@
 
 A service provider for managing [External Secrets Operator](https://external-secrets.io/) within [Open Control Plane](https://openmcp-project.github.io/docs/) environments.
 
+## Quality Criteria
+
+[![Quality: Incubating](https://img.shields.io/badge/Quality-Incubating-3d9970?style=flat-square&labelColor=555)](https://open-control-plane.io/developers/serviceprovider/quality-criteria)
+
+| Criterion                         | Status  | Notes                                                                                                      |
+| --------------------------------- | :----:  | ---------------------------------------------------------------------------------------------------------- |
+| Deletion behaviour                |   ⚠️    | Finalizer is wired up; blocking deletion when ESO-managed CRs still exist is not verified.                 |
+| Status reporting & error messages |   ✅    |                                                                                                            |
+| Operation annotations             |   ❌    | `openmcp.cloud/operation` (pause / force-reconcile) annotations are not honoured.                          |
+| API stability policy              |   ✅    |                                                                                                            |
+| Custom CA support                 |   ❌    | Custom CA bundle propagation to ESO components is not implemented.                                         |
+| Release artifacts (image + OCM)   |   ✅    |                                                                                                            |
+| Testing                           |   ✅    |                                                                                                            |
+| Ownership and maintenance docs    |   ✅    |                                                                                                            |
+
+See the [OpenControlPlane Quality Criteria](https://open-control-plane.io/developers/serviceprovider/quality-criteria) for definitions.
+
 ## Architecture Overview
 
 Service Provider External Secrets runs on the platform cluster of an [Open Control Plane installation](https://openmcp-project.github.io/docs/operators/overview). It reconciles `ExternalSecretOperator` resources and installs the [External Secrets Operator](https://external-secrets.io/) to the control plane of the requesting tenant (see [Service Provider Deployment Model](https://openmcp-project.github.io/docs/developers/serviceprovider/design#deployment-model) for more information).
