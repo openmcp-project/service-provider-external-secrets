@@ -8,16 +8,16 @@ A service provider for managing [External Secrets Operator](https://external-sec
 
 [![Quality: Incubating](https://img.shields.io/badge/Quality-Incubating-3d9970?style=flat-square&labelColor=555)](https://open-control-plane.io/developers/serviceprovider/quality-criteria)
 
-| Criterion                         | Status  | Notes                                                                                                      |
-| --------------------------------- | :----:  | ---------------------------------------------------------------------------------------------------------- |
-| Deletion behaviour                |   ⚠️    | Finalizer is wired up; blocking deletion when ESO-managed CRs still exist is not verified.                 |
-| Status reporting & error messages |   ✅    |                                                                                                            |
-| Operation annotations             |   ❌    | `openmcp.cloud/operation` (pause / force-reconcile) annotations are not honoured.                          |
-| API stability policy              |   ✅    |                                                                                                            |
-| Custom CA support                 |   ❌    | Custom CA bundle propagation to ESO components is not implemented.                                         |
-| Release artifacts (image + OCM)   |   ✅    |                                                                                                            |
-| Testing                           |   ✅    |                                                                                                            |
-| Ownership and maintenance docs    |   ✅    |                                                                                                            |
+| Criterion                         | Status. | Notes                                                                                                                                                                                                                                                                        |
+| --------------------------------- | :----:  | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deletion behaviour                |   ⚠️    | A finalizer ensures the Service Provider managed resources like Flux' `OCIRepository` and `HelmRelease` are cleaned-up. But there is no behaviour that ensures deletion is blocked if custom resources (e.g. ESO' `ExternalSecret` objects) in a `ControlPlane` still exist. |
+| Status reporting & error messages |   ✅    |                                                                                                                                                                                                                                                                              |
+| Operation annotations             |   ❌    | `openmcp.cloud/operation` (pause / force-reconcile) annotations are not honoured.                                                                                                                                                                                            |
+| API stability policy              |   ✅    |                                                                                                                                                                                                                                                                              |
+| Custom CA support                 |   ❌    | Custom CA bundle propagation to ESO components is not implemented.                                                                                                                                                                                                           |
+| Release artifacts (image + OCM)   |   ✅    |                                                                                                                                                                                                                                                                              |
+| Testing                           |   ✅    |                                                                                                                                                                                                                                                                              |
+| Ownership and maintenance docs    |   ✅    |                                                                                                                                                                                                                                                                              |
 
 See the [OpenControlPlane Quality Criteria](https://open-control-plane.io/developers/serviceprovider/quality-criteria) for definitions.
 
@@ -66,8 +66,8 @@ spec:
   version: "2.2.0"
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field          | Type   | Description                                                    |
+| -------------- | ------ | -------------------------------------------------------------- |
 | `spec.version` | string | The Helm chart version of External Secrets Operator to install |
 
 Note that any version that should be available to users has to be defined in the `ProviderConfig`.
@@ -114,34 +114,34 @@ spec:
             tag: "v2.2.0"
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field               | Type     | Description                                                           |
+| ------------------- | -------- | --------------------------------------------------------------------- |
 | `spec.pollInterval` | duration | periodic reconcile interval to prevent drift of managed MCP resources |
-| `spec.versions` | array | The versions of Flux that can be installed |
+| `spec.versions`     | array    | The versions of Flux that can be installed                            |
 
 A version item is defined as follows:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `version` | string | The External Secrets Operator version that this item defines |
-| `chartVersion` | string | The External Secrets Operator Helm chart version to install |
-| `chartURL` | string | OCI registry URL for the Helm chart |
-| `chartPullSecret` | string | Secret name for chart registry authentication |
-| `helmValues` | object | Custom Helm values for the External Secrets Operator deployment |
+| Field             | Type   | Description                                                     |
+| ----------------- | ------ | --------------------------------------------------------------- |
+| `version`         | string | The External Secrets Operator version that this item defines    |
+| `chartVersion`    | string | The External Secrets Operator Helm chart version to install     |
+| `chartURL`        | string | OCI registry URL for the Helm chart                             |
+| `chartPullSecret` | string | Secret name for chart registry authentication                   |
+| `helmValues`      | object | Custom Helm values for the External Secrets Operator deployment |
 
 For private and air-gapped environments, image locations and pull secrets can be adjusted via `spec.helmValues` global settings (see the example above).
 Pull secrets will be synced to each tenant control plane.
 
 ## Development Tasks
 
-| Command | Description |
-|---------|-------------|
-| `task build` | Build the binary |
-| `task build:img:build-test` | Build the container image |
-| `task test` | Run unit tests |
-| `task test-e2e` | Run end-to-end tests |
-| `task generate` | Generate CRDs and code after API changes |
-| `task validate` | Run linters and formatters |
+| Command                     | Description                              |
+| --------------------------- | ---------------------------------------- |
+| `task build`                | Build the binary                         |
+| `task build:img:build-test` | Build the container image                |
+| `task test`                 | Run unit tests                           |
+| `task test-e2e`             | Run end-to-end tests                     |
+| `task generate`             | Generate CRDs and code after API changes |
+| `task validate`             | Run linters and formatters               |
 
 ### Service Provider Runtime Flags
 
