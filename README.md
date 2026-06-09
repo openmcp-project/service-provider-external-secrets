@@ -145,7 +145,7 @@ For a complete list of available flags, run the generated binary with `-h` or `-
 
 - [External Secrets Operator Guides](https://external-secrets.io/latest/guides/introduction/)
 - [External Secrets Operator Components Overview](https://external-secrets.io/latest/api/components/)
-- [Open Control Plane Docs](https://open-control-plane.io)
+- [OpenControlPlane Docs](https://open-control-plane.io)
 
 ## Quality Criteria
 
