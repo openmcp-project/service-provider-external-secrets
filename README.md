@@ -41,7 +41,7 @@ flowchart LR
 The `ExternalSecretsOperator` resource represents an External Secret Operator installation for a `ManagedControlPlane`.
 
 ```yaml
-apiVersion: external-secrets.services.openmcp.cloud/v1alpha1
+apiVersion: external-secrets.services.open-control-plane.io/v1alpha1
 kind: ExternalSecretsOperator
 metadata:
   name: mcp-tenant-a
@@ -60,7 +60,7 @@ Note that any version that should be available to users has to be defined in the
 The `ProviderConfig` resource configures deployment settings for each version of External Secret Operator that the service provider supports.
 
 ```yaml
-apiVersion: external-secrets.services.openmcp.cloud/v1alpha1
+apiVersion: external-secrets.services.open-control-plane.io/v1alpha1
 kind: ProviderConfig
 metadata:
   name: externalsecretsoperator
