@@ -314,6 +314,10 @@ func main() {
 		os.Exit(1)
 	}
 	providerConfigUpdates := make(chan event.GenericEvent)
+	clusterAccessReconciler := clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "ExternalSecretsOperator")
+	if debugEnabled() {
+		clusterAccessReconciler = localaccess.NewLocalAccessReconciler(clusterAccessReconciler)
+	}
 	spr := serviceprovider.NewAPIReconcilerBuilder[*externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, *externalsecretsoperatorsv1alpha1.ProviderConfig]().
 		EmptyObjectProvider(func() *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator {
 			return &externalsecretsoperatorsv1alpha1.ExternalSecretsOperator{}
@@ -325,7 +329,7 @@ func main() {
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
 		}).
-		ClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "ExternalSecretsOperator").
+		ClusterAccessReconciler(clusterAccessReconciler.
 			WithMCPScheme(mcpScheme).
 			WithRetryInterval(10 * time.Second).
 			WithMCPPermissions(adminPermissions).WithMCPRoleRefs([]common.RoleRef{
