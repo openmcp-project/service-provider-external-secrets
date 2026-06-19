@@ -7,7 +7,7 @@ require (
 	github.com/openmcp-project/controller-utils v0.29.0
 	github.com/openmcp-project/opencontrolplane-runtime v0.2.1
 	github.com/openmcp-project/openmcp-operator/api v1.0.0
-	github.com/openmcp-project/openmcp-operator/lib v0.20.0
+	github.com/openmcp-project/openmcp-operator/lib v0.21.0
 	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.36.1
 	k8s.io/apimachinery v0.36.1
