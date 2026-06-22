@@ -43,7 +43,7 @@ import (
 const conditionReasonError = "ReconcileError"
 
 // ErrManagedResources is an end-user facing error if errors are present inside ExternalSecretsOperator.Status.ManagedResources
-var ErrManagedResources error = errors.New("resources contain reconcile errors")
+var ErrManagedResources = errors.New("resources contain reconcile errors")
 
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
