@@ -146,7 +146,7 @@ func FluxStatus(o client.Object, rl apiv1alpha1.ResourceLocation) Status {
 			Location: rl,
 		}
 	}
-	if conditions.IsReady(fluxObject) {
+	if conditions.IsTrue(fluxObject, meta.ReadyCondition) {
 		return Status{
 			Phase:    apiv1alpha1.Ready,
 			Message:  "Resource is ready",
