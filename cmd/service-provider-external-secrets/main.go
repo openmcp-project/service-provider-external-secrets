@@ -361,7 +361,27 @@ func main() {
 						{
 							APIGroups: []string{"rbac.authorization.k8s.io"},
 							Resources: []string{"roles", "rolebindings"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete", "escalate", "bind"},
+							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+						},
+						{
+							APIGroups: []string{"coordination.k8s.io"},
+							Resources: []string{"leases"},
+							Verbs:     []string{"get", "create", "update", "patch"},
+						},
+						{
+							APIGroups: []string{"policy"},
+							Resources: []string{"poddisruptionbudgets"},
+							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+						},
+						{
+							APIGroups: []string{"cert-manager.io"},
+							Resources: []string{"certificates"},
+							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+						},
+						{
+							APIGroups: []string{"monitoring.coreos.com"},
+							Resources: []string{"servicemonitors"},
+							Verbs:     []string{"get", "create", "update", "patch", "delete"},
 						},
 					},
 				},
@@ -370,22 +390,82 @@ func main() {
 						{
 							APIGroups: []string{"apiextensions.k8s.io"},
 							Resources: []string{"customresourcedefinitions"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+							Verbs:     []string{"get", "create", "update", "patch", "delete", "list", "watch"},
 						},
 						{
 							APIGroups: []string{"rbac.authorization.k8s.io"},
 							Resources: []string{"clusterroles", "clusterrolebindings"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete", "escalate", "bind"},
+							Verbs:     []string{"get", "create", "update", "patch", "delete"},
 						},
 						{
 							APIGroups: []string{"admissionregistration.k8s.io"},
 							Resources: []string{"validatingwebhookconfigurations"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+							Verbs:     []string{"get", "create", "update", "patch", "delete", "list", "watch"},
+						},
+						{
+							APIGroups: []string{""},
+							Resources: []string{"endpoints"},
+							Verbs:     []string{"get", "list", "watch"},
+						},
+						{
+							APIGroups: []string{"coordination.k8s.io"},
+							Resources: []string{"leases"},
+							Verbs:     []string{"get", "create", "update", "patch"},
+						},
+						{
+							APIGroups: []string{"discovery.k8s.io"},
+							Resources: []string{"endpointslices"},
+							Verbs:     []string{"get", "list", "watch"},
 						},
 						{
 							APIGroups: []string{""},
 							Resources: []string{"namespaces"},
-							Verbs:     []string{"get", "create", "patch"},
+							Verbs:     []string{"get", "create", "patch", "list", "watch", "update"},
+						},
+						{
+							APIGroups: []string{""},
+							Resources: []string{"configmaps"},
+							Verbs:     []string{"get", "list", "watch"},
+						},
+						{
+							APIGroups: []string{""},
+							Resources: []string{"events"},
+							Verbs:     []string{"create", "patch"},
+						},
+						{
+							APIGroups: []string{""},
+							Resources: []string{"secrets"},
+							Verbs:     []string{"get", "list", "watch", "create", "update", "delete", "patch"},
+						},
+						{
+							APIGroups: []string{""},
+							Resources: []string{"serviceaccounts"},
+							Verbs:     []string{"get", "list", "watch"},
+						},
+						{
+							APIGroups: []string{""},
+							Resources: []string{"serviceaccounts/token"},
+							Verbs:     []string{"create"},
+						},
+						{
+							APIGroups: []string{"external-secrets.io"},
+							Resources: []string{"*"},
+							Verbs:     []string{"*"},
+						},
+						{
+							APIGroups: []string{"generators.external-secrets.io"},
+							Resources: []string{"*"},
+							Verbs:     []string{"*"},
+						},
+						{
+							APIGroups: []string{"authentication.k8s.io"},
+							Resources: []string{"tokenreviews"},
+							Verbs:     []string{"create"},
+						},
+						{
+							APIGroups: []string{"authorization.k8s.io"},
+							Resources: []string{"subjectaccessreviews"},
+							Verbs:     []string{"create"},
 						},
 					},
 				},
