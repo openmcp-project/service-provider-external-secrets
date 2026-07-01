@@ -345,43 +345,33 @@ func main() {
 					Rules: []rbacv1.PolicyRule{
 						{
 							APIGroups: []string{""},
-							Resources: []string{"serviceaccounts", "services", "secrets", "configmaps"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete", "list"},
+							Resources: []string{"serviceaccounts", "services", "configmaps"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{"apps"},
-							Resources: []string{"deployments"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete"},
-						},
-						{
-							APIGroups: []string{"apps"},
-							Resources: []string{"replicasets"},
-							Verbs:     []string{"get", "list", "watch"},
+							Resources: []string{"deployments", "replicasets"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{"rbac.authorization.k8s.io"},
 							Resources: []string{"roles", "rolebindings"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete"},
-						},
-						{
-							APIGroups: []string{"coordination.k8s.io"},
-							Resources: []string{"leases"},
-							Verbs:     []string{"get", "create", "update", "patch"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{"policy"},
 							Resources: []string{"poddisruptionbudgets"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{"cert-manager.io"},
 							Resources: []string{"certificates"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{"monitoring.coreos.com"},
 							Resources: []string{"servicemonitors"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 					},
 				},
@@ -390,17 +380,17 @@ func main() {
 						{
 							APIGroups: []string{"apiextensions.k8s.io"},
 							Resources: []string{"customresourcedefinitions"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete", "list", "watch"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{"rbac.authorization.k8s.io"},
 							Resources: []string{"clusterroles", "clusterrolebindings"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{"admissionregistration.k8s.io"},
 							Resources: []string{"validatingwebhookconfigurations"},
-							Verbs:     []string{"get", "create", "update", "patch", "delete", "list", "watch"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{""},
@@ -408,19 +398,19 @@ func main() {
 							Verbs:     []string{"get", "list", "watch"},
 						},
 						{
-							APIGroups: []string{"coordination.k8s.io"},
-							Resources: []string{"leases"},
-							Verbs:     []string{"get", "create", "update", "patch"},
-						},
-						{
 							APIGroups: []string{"discovery.k8s.io"},
 							Resources: []string{"endpointslices"},
 							Verbs:     []string{"get", "list", "watch"},
 						},
 						{
+							APIGroups: []string{"coordination.k8s.io"},
+							Resources: []string{"leases"},
+							Verbs:     []string{"get", "create", "patch", "update"},
+						},
+						{
 							APIGroups: []string{""},
 							Resources: []string{"namespaces"},
-							Verbs:     []string{"get", "create", "patch", "list", "watch", "update"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update"},
 						},
 						{
 							APIGroups: []string{""},
@@ -435,7 +425,7 @@ func main() {
 						{
 							APIGroups: []string{""},
 							Resources: []string{"secrets"},
-							Verbs:     []string{"get", "list", "watch", "create", "update", "delete", "patch"},
+							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 						},
 						{
 							APIGroups: []string{""},
@@ -448,16 +438,6 @@ func main() {
 							Verbs:     []string{"create"},
 						},
 						{
-							APIGroups: []string{"external-secrets.io"},
-							Resources: []string{"*"},
-							Verbs:     []string{"*"},
-						},
-						{
-							APIGroups: []string{"generators.external-secrets.io"},
-							Resources: []string{"*"},
-							Verbs:     []string{"*"},
-						},
-						{
 							APIGroups: []string{"authentication.k8s.io"},
 							Resources: []string{"tokenreviews"},
 							Verbs:     []string{"create"},
@@ -466,6 +446,16 @@ func main() {
 							APIGroups: []string{"authorization.k8s.io"},
 							Resources: []string{"subjectaccessreviews"},
 							Verbs:     []string{"create"},
+						},
+						{
+							APIGroups: []string{"external-secrets.io"},
+							Resources: []string{"*"},
+							Verbs:     []string{"*"},
+						},
+						{
+							APIGroups: []string{"generators.external-secrets.io"},
+							Resources: []string{"*"},
+							Verbs:     []string{"*"},
 						},
 					},
 				},
