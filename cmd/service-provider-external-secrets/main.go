@@ -329,139 +329,6 @@ func main() {
 	}
 	providerConfigUpdates := make(chan event.GenericEvent)
 
-	tokenAccesGenerator := func(_ reconcile.Request, additionalData ...any) (*clustersv1alpha1.TokenConfig, error) {
-		namespace := externalsecrets.DefaultNamespace
-		for _, data := range additionalData {
-			ns, ok := data.(esoNamespace)
-			if ok && ns != "" {
-				namespace = string(ns)
-				break
-			}
-		}
-		return &clustersv1alpha1.TokenConfig{
-			Permissions: []clustersv1alpha1.PermissionsRequest{
-				{
-					Namespace: namespace,
-					Rules: []rbacv1.PolicyRule{
-						{
-							APIGroups: []string{""},
-							Resources: []string{"serviceaccounts", "services", "configmaps"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{"apps"},
-							Resources: []string{"deployments", "replicasets"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{"rbac.authorization.k8s.io"},
-							Resources: []string{"roles", "rolebindings"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{"policy"},
-							Resources: []string{"poddisruptionbudgets"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{"cert-manager.io"},
-							Resources: []string{"certificates"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{"monitoring.coreos.com"},
-							Resources: []string{"servicemonitors"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-					},
-				},
-				{
-					Rules: []rbacv1.PolicyRule{
-						{
-							APIGroups: []string{"apiextensions.k8s.io"},
-							Resources: []string{"customresourcedefinitions"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{"rbac.authorization.k8s.io"},
-							Resources: []string{"clusterroles", "clusterrolebindings"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{"admissionregistration.k8s.io"},
-							Resources: []string{"validatingwebhookconfigurations"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{""},
-							Resources: []string{"endpoints"},
-							Verbs:     []string{"get", "list", "watch"},
-						},
-						{
-							APIGroups: []string{"discovery.k8s.io"},
-							Resources: []string{"endpointslices"},
-							Verbs:     []string{"get", "list", "watch"},
-						},
-						{
-							APIGroups: []string{"coordination.k8s.io"},
-							Resources: []string{"leases"},
-							Verbs:     []string{"get", "create", "patch", "update"},
-						},
-						{
-							APIGroups: []string{""},
-							Resources: []string{"namespaces"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update"},
-						},
-						{
-							APIGroups: []string{""},
-							Resources: []string{"configmaps"},
-							Verbs:     []string{"get", "list", "watch"},
-						},
-						{
-							APIGroups: []string{""},
-							Resources: []string{"events"},
-							Verbs:     []string{"create", "patch"},
-						},
-						{
-							APIGroups: []string{""},
-							Resources: []string{"secrets"},
-							Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-						},
-						{
-							APIGroups: []string{""},
-							Resources: []string{"serviceaccounts"},
-							Verbs:     []string{"get", "list", "watch"},
-						},
-						{
-							APIGroups: []string{""},
-							Resources: []string{"serviceaccounts/token"},
-							Verbs:     []string{"create"},
-						},
-						{
-							APIGroups: []string{"authentication.k8s.io"},
-							Resources: []string{"tokenreviews"},
-							Verbs:     []string{"create"},
-						},
-						{
-							APIGroups: []string{"authorization.k8s.io"},
-							Resources: []string{"subjectaccessreviews"},
-							Verbs:     []string{"create"},
-						},
-						{
-							APIGroups: []string{"external-secrets.io"},
-							Resources: []string{"*"},
-							Verbs:     []string{"*"},
-						},
-						{
-							APIGroups: []string{"generators.external-secrets.io"},
-							Resources: []string{"*"},
-							Verbs:     []string{"*"},
-						},
-					},
-				},
-			},
-		}, nil
-	}
 	mcpClusterRequest := advanced.ExistingClusterRequest("mcp", "mcp", func(req reconcile.Request, _ ...any) (*common.ObjectReference, error) {
 		namespace, err := utils.StableMCPNamespace(req.Name, req.Namespace)
 		if err != nil {
@@ -473,7 +340,7 @@ func main() {
 		}, nil
 	}).
 		WithNamespaceGenerator(advanced.DefaultNamespaceGeneratorForMCP).
-		WithTokenAccessGenerator(tokenAccesGenerator).
+		WithTokenAccessGenerator(externalsecrets.TokenAccesGenerator).
 		WithScheme(mcpScheme).
 		Build()
 
@@ -504,7 +371,7 @@ func main() {
 			PodNamespace:      podNamespace,
 		}).
 		AdvancedClusterAccessReconciler(clusterAccessReconciler).
-		AdditionalDataGenerators(resolveEsoNamespace).
+		AdditionalDataGenerators(externalsecrets.ResolveEsoNamespace).
 		MustBuild()
 	if err := spr.SetupWithManager(mgr, "externalsecretsoperator", providerConfigUpdates); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExternalSecretsOperator")
@@ -581,30 +448,4 @@ func patchOnboardingClient(ctx context.Context, platformCluster *clusters.Cluste
 func debugEnabled() bool {
 	v := strings.ToLower(os.Getenv(debugEnvVar))
 	return v == "1" || v == "true"
-}
-
-type esoNamespace string
-
-func resolveEsoNamespace(_ context.Context, obj *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, providerConfig *externalsecretsoperatorsv1alpha1.ProviderConfig) (any, error) {
-	namespace := externalsecrets.DefaultNamespace
-
-	if obj != nil && providerConfig != nil {
-		for _, version := range providerConfig.Spec.Versions {
-			if version.Version != obj.Spec.Version {
-				continue
-			}
-
-			helmValues, err := externalsecrets.ExtractHelmValues(version.HelmValues)
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract helm values: %w", err)
-			}
-
-			if helmValues.NamespaceOverride != "" {
-				namespace = helmValues.NamespaceOverride
-			}
-			break
-		}
-	}
-
-	return esoNamespace(namespace), nil
 }
