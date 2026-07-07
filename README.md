@@ -147,6 +147,14 @@ For a complete list of available flags, run the generated binary with `-h` or `-
 - [External Secrets Operator Components Overview](https://external-secrets.io/latest/api/components/)
 - [OpenControlPlane Docs](https://open-control-plane.io)
 
+## Provider Permissions
+
+To determine the required permissions check the templates folder of the [ESO Helm chart](https://github.com/external-secrets/external-secrets/tree/main/deploy/charts/external-secrets/templates). The service provider needs permission to create every resource defined there, including resources that are only rendered when certain Helm values are enabled.
+Make sure to check if the namespace of a resources can be changed outside of a complete namespace override for the entire installation (for example ServiceMonitor). In that case the provider needs cluster scoped permissions.
+
+Some of the rendered resources are Roles and ClusterRoles. Kubernetes prevents privilege escalation that means you can only bind permissions to a service account that you already hold yourself. So the service provider must have all permissions across all Roles and ClusterRoles in the chart.
+Note that some of these are conditionally rendered as a Role or a ClusterRole depending on Helm values. In that case the service provider needs cluster-scoped permissions to cover both cases.
+
 ## Quality Criteria
 
 [![Quality: Incubating](https://img.shields.io/badge/Quality-Incubating-3d9970?style=flat-square&labelColor=555)](https://open-control-plane.io/developers/serviceprovider/quality-criteria)
