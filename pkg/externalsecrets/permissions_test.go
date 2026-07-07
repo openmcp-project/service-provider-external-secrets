@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	externalsecretsoperatorsv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+
+	externalsecretsoperatorsv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 )
 
 func TestResolveEsoNamespace(t *testing.T) {
