@@ -57,7 +57,7 @@ func TokenAccesGenerator(_ reconcile.Request, additionalData ...any) (*clustersv
 				Rules: []rbacv1.PolicyRule{
 					{
 						APIGroups: []string{""},
-						Resources: []string{"serviceaccounts", "services", "configmaps"},
+						Resources: []string{"serviceaccounts", "services"},
 						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 					},
 					{
@@ -78,11 +78,6 @@ func TokenAccesGenerator(_ reconcile.Request, additionalData ...any) (*clustersv
 					{
 						APIGroups: []string{"cert-manager.io"},
 						Resources: []string{"certificates"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
-					},
-					{
-						APIGroups: []string{"monitoring.coreos.com"},
-						Resources: []string{"servicemonitors"},
 						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 					},
 				},
@@ -127,7 +122,7 @@ func TokenAccesGenerator(_ reconcile.Request, additionalData ...any) (*clustersv
 					{
 						APIGroups: []string{""},
 						Resources: []string{"configmaps"},
-						Verbs:     []string{"get", "list", "watch"},
+						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 					},
 					{
 						APIGroups: []string{""},
@@ -158,6 +153,11 @@ func TokenAccesGenerator(_ reconcile.Request, additionalData ...any) (*clustersv
 						APIGroups: []string{"authorization.k8s.io"},
 						Resources: []string{"subjectaccessreviews"},
 						Verbs:     []string{"create"},
+					},
+					{
+						APIGroups: []string{"monitoring.coreos.com"},
+						Resources: []string{"servicemonitors"},
+						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
 					},
 					{
 						APIGroups: []string{"external-secrets.io"},
