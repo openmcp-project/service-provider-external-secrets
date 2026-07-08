@@ -14,6 +14,22 @@
   "postUpdateOptions": [
     "gomodTidy"
   ],
+    "ignorePresets": [
+    ":ignoreModulesAndTests"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/test/e2e/.*\\.go$/",
+        "/test/e2e/.*\\.yaml$/"
+      ],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+[^\"]*\"[^:]+:(?<currentValue>[^\"]+)\"",
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+[^\"]*\"[^:]+:(?<currentValue>[^\"]+)\""
+      ]
+    }
+  ],
   "packageRules": [
     {
       "description": "Group openmcp-project Go components",

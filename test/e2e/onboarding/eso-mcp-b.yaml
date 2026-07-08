@@ -3,4 +3,4 @@ kind: ExternalSecretsOperator
 metadata:
   name: mcp-b
 spec:
-  version: "v2.2.0"
+  version: "latest"
