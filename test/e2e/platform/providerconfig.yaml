@@ -15,7 +15,8 @@ spec:
           repository: ghcr.io/external-secrets/external-secrets
           imagePullSecrets:
             - name: privateregcred
-    - version: "v2.2.0"
+    - version: "latest"
+      # renovate: datasource=helm depName=external-secrets registryUrl=oci://ghcr.io/external-secrets/charts
       chartVersion: "2.2.0"
       chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
       helmValues:
