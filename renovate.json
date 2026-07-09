@@ -26,7 +26,7 @@
       ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+[^\"]*\"[^:]+:(?<currentValue>[^\"]+)\"",
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+[^\"]*\"[^:]+:(?<currentValue>[^\"]+)\""
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+) registryUrl=(?<registryUrl>[^\\s]+)\\s+[^\"]*[^:]+:\\s+\"(?<currentValue>[^\"]+)\""
       ]
     }
   ],
