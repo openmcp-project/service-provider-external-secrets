@@ -23,14 +23,17 @@ spec:
         image:
           repository: ghcr.io/external-secrets/external-secrets
           # -- The image tag to use. The default is the chart appVersion.
-          tag: "v2.2.0"
+          # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
+          tag: "v2.7.0"
         webhook:
           image:
             repository: ghcr.io/external-secrets/external-secrets
             # -- The image tag to use. The default is the chart appVersion.
-            tag: "v2.2.0"
+            # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
+            tag: "v2.7.0"
         certController:
           image:
             repository: ghcr.io/external-secrets/external-secrets
             # -- The image tag to use. The default is the chart appVersion.
-            tag: "v2.2.0"
+            # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
+            tag: "v2.7.0"
