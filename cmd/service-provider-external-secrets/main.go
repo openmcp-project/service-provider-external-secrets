@@ -374,7 +374,7 @@ func main() {
 		AdvancedClusterAccessReconciler(clusterAccessReconciler).
 		AdditionalDataGenerators(externalsecrets.ResolveEsoNamespace).
 		MustBuild()
-	if err := spr.SetupWithManager(mgr, "externalsecretsoperator"); err != nil {
+	if err := spr.SetupWithManager(mgr, providerName); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExternalSecretsOperator")
 		os.Exit(1)
 	}

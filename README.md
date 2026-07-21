@@ -63,7 +63,7 @@ The `ProviderConfig` resource configures deployment settings for each version of
 apiVersion: external-secrets.services.open-control-plane.io/v1alpha1
 kind: ProviderConfig
 metadata:
-  name: externalsecretsoperator
+  name: external-secrets
 spec:
   versions:
     - version: "v2.1.0"
@@ -96,6 +96,8 @@ spec:
             # -- The image tag to use. The default is the chart appVersion.
             tag: "v2.2.0"
 ```
+
+The `ProviderConfig` name must match the service provider's `--provider-name` value.
 
 | Field               | Type     | Description                                                           |
 | ------------------- | -------- | --------------------------------------------------------------------- |
