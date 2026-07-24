@@ -15,6 +15,16 @@ import (
 // ESONamespace carries the resolved ESO installation namespace between ResolveEsoNamespace and TokenAccessGenerator.
 type ESONamespace string
 
+const (
+	verbCreate = "create"
+	verbDelete = "delete"
+	verbGet    = "get"
+	verbList   = "list"
+	verbPatch  = "patch"
+	verbUpdate = "update"
+	verbWatch  = "watch"
+)
+
 // ResolveEsoNamespace is an AdditionalDataResolver that returns the ESO installation namespace.
 func ResolveEsoNamespace(_ context.Context, obj *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, providerConfig *externalsecretsoperatorsv1alpha1.ProviderConfig) (any, error) {
 	if obj == nil {
@@ -58,27 +68,27 @@ func TokenAccesGenerator(_ reconcile.Request, additionalData ...any) (*clustersv
 					{
 						APIGroups: []string{""},
 						Resources: []string{"serviceaccounts", "services"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{"apps"},
 						Resources: []string{"deployments", "replicasets"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{"rbac.authorization.k8s.io"},
 						Resources: []string{"roles", "rolebindings"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{"policy"},
 						Resources: []string{"poddisruptionbudgets"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{"cert-manager.io"},
 						Resources: []string{"certificates"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 				},
 			},
@@ -87,77 +97,77 @@ func TokenAccesGenerator(_ reconcile.Request, additionalData ...any) (*clustersv
 					{
 						APIGroups: []string{"apiextensions.k8s.io"},
 						Resources: []string{"customresourcedefinitions"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{"rbac.authorization.k8s.io"},
 						Resources: []string{"clusterroles", "clusterrolebindings"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{"admissionregistration.k8s.io"},
 						Resources: []string{"validatingwebhookconfigurations"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{""},
 						Resources: []string{"endpoints"},
-						Verbs:     []string{"get", "list", "watch"},
+						Verbs:     []string{verbGet, verbList, verbWatch},
 					},
 					{
 						APIGroups: []string{"discovery.k8s.io"},
 						Resources: []string{"endpointslices"},
-						Verbs:     []string{"get", "list", "watch"},
+						Verbs:     []string{verbGet, verbList, verbWatch},
 					},
 					{
 						APIGroups: []string{"coordination.k8s.io"},
 						Resources: []string{"leases"},
-						Verbs:     []string{"get", "create", "patch", "update"},
+						Verbs:     []string{verbGet, verbCreate, verbPatch, verbUpdate},
 					},
 					{
 						APIGroups: []string{""},
 						Resources: []string{"namespaces"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update"},
+						Verbs:     []string{verbGet, verbList, verbWatch, verbCreate, verbPatch, verbUpdate},
 					},
 					{
 						APIGroups: []string{""},
 						Resources: []string{"configmaps"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{""},
 						Resources: []string{"events"},
-						Verbs:     []string{"create", "patch"},
+						Verbs:     []string{verbCreate, verbPatch},
 					},
 					{
 						APIGroups: []string{""},
 						Resources: []string{"secrets"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{""},
 						Resources: []string{"serviceaccounts"},
-						Verbs:     []string{"get", "list", "watch"},
+						Verbs:     []string{verbGet, verbList, verbWatch},
 					},
 					{
 						APIGroups: []string{""},
 						Resources: []string{"serviceaccounts/token"},
-						Verbs:     []string{"create"},
+						Verbs:     []string{verbCreate},
 					},
 					{
 						APIGroups: []string{"authentication.k8s.io"},
 						Resources: []string{"tokenreviews"},
-						Verbs:     []string{"create"},
+						Verbs:     []string{verbCreate},
 					},
 					{
 						APIGroups: []string{"authorization.k8s.io"},
 						Resources: []string{"subjectaccessreviews"},
-						Verbs:     []string{"create"},
+						Verbs:     []string{verbCreate},
 					},
 					{
 						APIGroups: []string{"monitoring.coreos.com"},
 						Resources: []string{"servicemonitors"},
-						Verbs:     []string{"get", "list", "watch", "create", "patch", "update", "delete"},
+						Verbs:     []string{rbacv1.VerbAll},
 					},
 					{
 						APIGroups: []string{"external-secrets.io"},
