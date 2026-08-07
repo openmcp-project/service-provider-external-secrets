@@ -38,19 +38,21 @@ type ExternalSecretsOperatorStatus struct {
 	Resources []ManagedResource `json:"resources,omitempty"`
 }
 
+// ManagedResource are helper resources managed by the service-provider-external-secrets
 type ManagedResource struct {
 	corev1.TypedObjectReference `json:",inline"`
-    // +optional
-    Status ManagedResourceStatus  `json:"status,omitempty"`
-    // +optional
-    Location string          `json:"location,omitempty"`
+	// +optional
+	Status ManagedResourceStatus `json:"status,omitempty"`
+	// +optional
+	Location string `json:"location,omitempty"`
 }
 
+// ManagedResourceStatus is the status of a MangedResource
 type ManagedResourceStatus struct {
-    // +optional
-    Phase   string `json:"phase,omitempty"`
-    // +optional
-    Message string `json:"message,omitempty"`
+	// +optional
+	Phase string `json:"phase,omitempty"`
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // ExternalSecretsOperator is the Schema for the externalsecretsoperators API
@@ -116,6 +118,7 @@ func (o *ExternalSecretsOperator) SetObservedGeneration(gen int64) {
 	o.Status.ObservedGeneration = gen
 }
 
+// GetAPIVersion returns the API group of the managed resource, or empty string if unset.
 func (m *ManagedResource) GetAPIVersion() string {
 	if m.APIGroup == nil {
 		return ""
@@ -123,14 +126,17 @@ func (m *ManagedResource) GetAPIVersion() string {
 	return *m.APIGroup
 }
 
+// GetKind returns the kind of the managed resource.
 func (m *ManagedResource) GetKind() string {
 	return m.Kind
 }
 
+// GetName returns the name of the managed resource.
 func (m *ManagedResource) GetName() string {
 	return m.Name
 }
 
+// GetNamespace returns the namespace of the managed resource, or empty string if cluster-scoped.
 func (m *ManagedResource) GetNamespace() string {
 	if m.Namespace == nil {
 		return ""
@@ -138,10 +144,12 @@ func (m *ManagedResource) GetNamespace() string {
 	return *m.Namespace
 }
 
+// GetLocation returns the location of the managed resource.
 func (m *ManagedResource) GetLocation() string {
 	return m.Location
 }
 
+// GetStatus returns the status of the managed resource.
 func (m *ManagedResource) GetStatus() ManagedResourceStatus {
 	return m.Status
 }
