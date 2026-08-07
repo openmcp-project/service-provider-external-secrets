@@ -19,7 +19,7 @@ package v1alpha1
 import (
 	"time"
 
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	manager "github.com/openmcp-project/controller-utils/pkg/manager"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -31,40 +31,13 @@ type ProviderConfigSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +listType=map
 	// +listMapKey=version
-	Versions []ExternalSecretsVersion `json:"versions"`
+	Versions []manager.RequestedVersion `json:"versions"`
 
 	// PollInterval at which the controller requeues to detect drift
 	// +optional
 	// +kubebuilder:default:="1m"
 	// +kubebuilder:validation:Format=duration
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
-}
-
-// ExternalSecretsVersion defines a version of External Secrets Operator that can be installed
-type ExternalSecretsVersion struct {
-	// Version is the External Secrets Operation version to install.
-	// This version is compared with ExternalSecretsOperator.Spec.Version to define available versions
-	// and the deployment artifacts of a version.
-	// +required
-	Version string `json:"version"`
-
-	// ChartVersion is the version of the Helm chart to install
-	// +required
-	ChartVersion string `json:"chartVersion"`
-
-	// ChartURL is a reference to an OCI artifact repository that hosts the external-secrets Helm chart.
-	// +optional
-	// +kubebuilder:default="oci://ghcr.io/external-secrets/charts/external-secrets"
-	ChartURL *string `json:"chartURL,omitempty"`
-
-	// ChartPullSecret is a reference to the secret containing the credentials to pull the Helm chart.
-	// The secret must be of type kubernetes.io/dockerconfigjson.
-	// +optional
-	ChartPullSecret string `json:"chartPullSecret,omitempty"`
-
-	// HelmValues are arbitrary Helm values passed directly to the managed HelmRelease.
-	// +optional
-	HelmValues *apiextensionsv1.JSON `json:"helmValues,omitempty"`
 }
 
 // ProviderConfigStatus defines the observed state of ProviderConfig.

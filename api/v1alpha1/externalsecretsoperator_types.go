@@ -23,25 +23,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// InstancePhase is a custom type representing the phase of a service instance.
-type InstancePhase string
-
-// ResourceLocation is a custom type representing the location of a resource.
-type ResourceLocation string
-
-// Constants representing the phases of an instance lifecycle.
-const (
-	Pending     InstancePhase = "Pending"
-	Progressing InstancePhase = "Progressing"
-	Ready       InstancePhase = "Ready"
-	Failed      InstancePhase = "Failed"
-	Terminating InstancePhase = "Terminating"
-	Unknown     InstancePhase = "Unknown"
-
-	ManagedControlPlane ResourceLocation = "ManagedControlPlane"
-	PlatformCluster     ResourceLocation = "PlatformCluster"
-)
-
 // ExternalSecretsOperatorSpec defines the desired state of ExternalSecretsOperator
 type ExternalSecretsOperatorSpec struct {
 	// Version is the external-secrets Helm chart version to install.
@@ -57,16 +38,19 @@ type ExternalSecretsOperatorStatus struct {
 	Resources []ManagedResource `json:"resources,omitempty"`
 }
 
-// ManagedResource defines a kubernetes object with its lifecycle phase
 type ManagedResource struct {
 	corev1.TypedObjectReference `json:",inline"`
+    // +optional
+    Status ManagedResourceStatus  `json:"status,omitempty"`
+    // +optional
+    Location string          `json:"location,omitempty"`
+}
 
-	// +required
-	Phase InstancePhase `json:"phase"`
-	// +optional
-	Message string `json:"message,omitempty"`
-	// +optional
-	Location ResourceLocation `json:"location,omitempty"`
+type ManagedResourceStatus struct {
+    // +optional
+    Phase   string `json:"phase,omitempty"`
+    // +optional
+    Message string `json:"message,omitempty"`
 }
 
 // ExternalSecretsOperator is the Schema for the externalsecretsoperators API
@@ -130,4 +114,34 @@ func (o *ExternalSecretsOperator) SetPhase(phase string) {
 // SetObservedGeneration sets the observed generation of the ExternalSecretsOperator resource
 func (o *ExternalSecretsOperator) SetObservedGeneration(gen int64) {
 	o.Status.ObservedGeneration = gen
+}
+
+func (m *ManagedResource) GetAPIVersion() string {
+	if m.APIGroup == nil {
+		return ""
+	}
+	return *m.APIGroup
+}
+
+func (m *ManagedResource) GetKind() string {
+	return m.Kind
+}
+
+func (m *ManagedResource) GetName() string {
+	return m.Name
+}
+
+func (m *ManagedResource) GetNamespace() string {
+	if m.Namespace == nil {
+		return ""
+	}
+	return *m.Namespace
+}
+
+func (m *ManagedResource) GetLocation() string {
+	return m.Location
+}
+
+func (m *ManagedResource) GetStatus() ManagedResourceStatus {
+	return m.Status
 }

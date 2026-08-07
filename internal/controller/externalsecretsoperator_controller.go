@@ -20,16 +20,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	"github.com/openmcp-project/controller-utils/pkg/manager"
+
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
@@ -41,9 +40,6 @@ import (
 )
 
 const conditionReasonError = "ReconcileError"
-
-// ErrManagedResources is an end-user facing error if errors are present inside ExternalSecretsOperator.Status.ManagedResources
-var ErrManagedResources = errors.New("resources contain reconcile errors")
 
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
@@ -63,15 +59,15 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
-	results, err := mgr.Apply(ctx)
-	managedResources, resultContainsErrors := resultsToResources(ctx, results)
-	obj.Status.Resources = managedResources
-	if allResourcesReady(managedResources) {
-		serviceprovider.StatusReady(obj)
+	resources, done, err := mgr.Apply(ctx)
+	obj.Status.Resources = toResources(resources)
+	if err != nil {
+		return ctrl.Result{}, updateStatusError(obj, err)
 	}
-	if resultContainsErrors || err != nil {
-		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
+	if !done {
+		return ctrl.Result{RequeueAfter: pc.PollInterval()}, nil
 	}
+	serviceprovider.StatusReady(obj)
 	return ctrl.Result{}, nil
 }
 
@@ -83,45 +79,65 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
-	results, err := mgr.Delete(ctx)
-	managedResources, resultContainsErrors := resultsToResources(ctx, results)
-	obj.Status.Resources = managedResources
-	if externalsecrets.AllDeleted(results) {
-		return ctrl.Result{}, nil
+	resources, done, err := mgr.Delete(ctx)
+	obj.Status.Resources = toResources(resources)
+	if err != nil {
+		return ctrl.Result{}, updateStatusError(obj, err)
 	}
-	if resultContainsErrors || err != nil {
-		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
+	if !done {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
-	return ctrl.Result{
-		RequeueAfter: time.Second * 5,
-	}, nil
+	return ctrl.Result{}, nil
 }
 
-func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, resourceErrors bool, err error) error {
-	if resourceErrors {
-		err = errors.Join(ErrManagedResources, err)
+// toResources converts the framework's []manager.ManagedResource interface slice into the
+// CRD-embedded concrete []apiv1alpha1.ManagedResource slice owned by SPES.
+func toResources(in []manager.ManagedResource) []apiv1alpha1.ManagedResource {
+	out := make([]apiv1alpha1.ManagedResource, len(in))
+	for i, r := range in {
+		apiGroup := r.GetAPIVersion()
+		var apiGroupPtr *string
+		if apiGroup != "" {
+			apiGroupPtr = &apiGroup
+		}
+		out[i] = apiv1alpha1.ManagedResource{
+			TypedObjectReference: corev1.TypedObjectReference{
+				APIGroup:  apiGroupPtr,
+				Kind:      r.GetKind(),
+				Name:      r.GetName(),
+				Namespace: r.GetNamespace(),
+			},
+			Status: apiv1alpha1.ManagedResourceStatus{
+				Phase:   r.GetStatus().Phase,
+				Message: r.GetStatus().Message,
+			},
+			Location: string(r.GetLocation()),
+		}
 	}
+	return out
+}
+
+func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, err error) error {
 	serviceprovider.StatusProgressing(obj, conditionReasonError, userErrorMessage(err))
 	return ctrlerrors.IgnoreInvalidUserInput(err)
 }
 
-// userErrorMessage constructs an end-user facing error message.
-// Only end-user errors are processed.
+// userErrorMessage extracts only the user-facing portion of an error for status reporting.
 func userErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	errorMessages := []string{}
-	if errors.Is(err, ErrManagedResources) {
-		errorMessages = append(errorMessages, ErrManagedResources.Error())
+	var messages []string
+	if errors.Is(err, manager.ErrManagedResourcesFailed) {
+		messages = append(messages, manager.ErrManagedResourcesFailed.Error())
 	}
-	if errors.Is(err, externalsecrets.ErrOrphanCleanup) {
-		errorMessages = append(errorMessages, externalsecrets.ErrOrphanCleanup.Error())
+	if errors.Is(err, manager.ErrOrphanCleanup) {
+		messages = append(messages, manager.ErrOrphanCleanup.Error())
 	}
-	return strings.Join(errorMessages, "; ")
+	return strings.Join(messages, "; ")
 }
 
-func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (externalsecrets.Manager, error) {
+func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (manager.Manager, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
@@ -135,17 +151,17 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
-	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.PlatformCluster)
+	platformCluster := manager.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, manager.PlatformCluster)
 	externalSecretsNamespace := externalsecrets.DefaultNamespace
 	if helmValues.NamespaceOverride != "" {
 		externalSecretsNamespace = helmValues.NamespaceOverride
 	}
-	mcpCluster := externalsecrets.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, externalsecrets.ManagedControlPlane)
+	mcpCluster := manager.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, manager.ManagedControlPlane)
 	// sync image pull secrets from platform cluster to mcp
 	// Note: No prefix needed - these go to the MCP cluster's ESO namespace,
 	// not the shared tenant namespace where collisions can occur
 	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		externalsecrets.ManagePullSecret(mcpCluster, imagePullSecret, externalsecrets.SecretCopyConfig{
+		manager.ManagePullSecret(mcpCluster, imagePullSecret, manager.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: externalSecretsNamespace,
@@ -155,36 +171,35 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	// sync chart pull secrets within platform cluster from pod namespace to tenant namespace
 	var prefixedChartPullSecret string
 	if esoVersion.ChartPullSecret != "" {
-		prefixedChartPullSecret, err = externalsecrets.PrefixSecretName(esoVersion.ChartPullSecret)
+		prefixedChartPullSecret, err = manager.PrefixSecretName(esoVersion.ChartPullSecret, externalsecrets.ChartPullSecretPrefix)
 		if err != nil {
 			return nil, fmt.Errorf("error generating secret name: %w", err)
 		}
-		externalsecrets.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: esoVersion.ChartPullSecret}, externalsecrets.SecretCopyConfig{
+		manager.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: esoVersion.ChartPullSecret}, manager.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: tenantNamespace,
 			TargetName:      prefixedChartPullSecret,
 		})
 	}
-	externalsecrets.ManageFluxResources(externalsecrets.ManageFluxResourcesParams{
+	manager.ManageFluxResources(manager.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
 		MCPNamespace:        externalSecretsNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
-		Obj:                 obj,
 		Interval:            pc.PollInterval(),
 		ClusterContext:      clusters,
 		RequestedVersion:    esoVersion,
+		OCIRepositoryName:   pc.Name,
+		HelmReleaseName:     pc.Name,
 	})
-	mgr := externalsecrets.NewManager()
+	mgr := manager.NewManager(pc.Name)
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
 
-	platformSecretCleaner := externalsecrets.NewSecretCleaner(platformCluster, tenantNamespace, []corev1.LocalObjectReference{
-		{
-			Name: prefixedChartPullSecret,
-		},
+	platformSecretCleaner := manager.NewSecretCleaner(platformCluster, pc.Name, tenantNamespace, []corev1.LocalObjectReference{
+		{Name: prefixedChartPullSecret},
 	})
-	controlPlaneSecretCleaner := externalsecrets.NewSecretCleaner(mcpCluster, externalSecretsNamespace, helmValues.Global.ImagePullSecrets)
+	controlPlaneSecretCleaner := manager.NewSecretCleaner(mcpCluster, pc.Name, externalSecretsNamespace, helmValues.Global.ImagePullSecrets)
 
 	mgr.AddCleaner(platformSecretCleaner)
 	mgr.AddCleaner(controlPlaneSecretCleaner)
@@ -192,52 +207,11 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	return mgr, nil
 }
 
-func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.ExternalSecretsVersion, error) {
+func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (manager.RequestedVersion, error) {
 	for _, configVersion := range pc.Spec.Versions {
 		if configVersion.Version == requestedVersion {
 			return configVersion, nil
 		}
 	}
-	return apiv1alpha1.ExternalSecretsVersion{}, fmt.Errorf("%w: requested version (%s) is not available", ctrlerrors.ErrInvalidUserInput, requestedVersion)
-}
-
-func resultsToResources(ctx context.Context, results []externalsecrets.Result) ([]apiv1alpha1.ManagedResource, bool) {
-	l := log.FromContext(ctx)
-	containsError := false
-	resources := make([]apiv1alpha1.ManagedResource, 0, len(results))
-	for _, res := range results {
-		obj := res.Object.GetObject()
-		status := res.Object.GetStatus(apiv1alpha1.ResourceLocation(res.Cluster.GetClusterType()))
-		resources = append(resources, apiv1alpha1.ManagedResource{
-			TypedObjectReference: corev1.TypedObjectReference{
-				Kind:      reflect.TypeOf(obj).Elem().Name(),
-				Name:      obj.GetName(),
-				Namespace: nilIfEmptyString(obj.GetNamespace()),
-			},
-			Phase:    status.Phase,
-			Message:  status.Message,
-			Location: status.Location,
-		})
-		if res.Error != nil {
-			containsError = true
-			l.Error(res.Error, "objectID", externalsecrets.ObjectID(obj))
-		}
-	}
-	return resources, containsError
-}
-
-func nilIfEmptyString(str string) *string {
-	if str == "" {
-		return nil
-	}
-	return ptr.To(str)
-}
-
-func allResourcesReady(resources []apiv1alpha1.ManagedResource) bool {
-	for _, res := range resources {
-		if res.Phase != apiv1alpha1.Ready {
-			return false
-		}
-	}
-	return true
+	return manager.RequestedVersion{}, fmt.Errorf("%w: requested version (%s) is not available", ctrlerrors.ErrInvalidUserInput, requestedVersion)
 }
