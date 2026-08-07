@@ -24,6 +24,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
@@ -122,13 +123,36 @@ func toResources(in []manager.ManagedResource) []apiv1alpha1.ManagedResource {
 				Namespace: r.GetNamespace(),
 			},
 			Status: apiv1alpha1.ManagedResourceStatus{
-				Phase:   r.GetStatus().Phase,
-				Message: r.GetStatus().Message,
+				Phase:      r.GetStatus().Phase,
+				Message:    r.GetStatus().Message,
+				Conditions: managedResourceConditions(r.GetStatus()),
 			},
 			Location: string(r.GetLocation()),
 		}
 	}
 	return out
+}
+
+// managedResourceConditions synthesizes a Ready condition from the manager status.
+// TODO: use meta.SetStatusCondition for proper LastTransitionTime management (avoids resetting on every reconcile).
+func managedResourceConditions(s manager.ManagedResourceStatus) []metav1.Condition {
+	condStatus := metav1.ConditionFalse
+	if s.Phase == manager.StatusPhaseReady {
+		condStatus = metav1.ConditionTrue
+	}
+	reason := s.Phase
+	if reason == "" {
+		reason = "Unknown"
+	}
+	return []metav1.Condition{
+		{
+			Type:               "Ready",
+			Status:             condStatus,
+			Reason:             reason,
+			Message:            s.Message,
+			LastTransitionTime: metav1.Now(),
+		},
+	}
 }
 
 func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, err error) error {

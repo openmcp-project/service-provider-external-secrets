@@ -47,12 +47,17 @@ type ManagedResource struct {
 	Location string `json:"location,omitempty"`
 }
 
-// ManagedResourceStatus is the status of a MangedResource
+// ManagedResourceStatus is the status of a ManagedResource
 type ManagedResourceStatus struct {
 	// +optional
 	Phase string `json:"phase,omitempty"`
 	// +optional
 	Message string `json:"message,omitempty"`
+	// Conditions contains the conditions of the managed resource.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // ExternalSecretsOperator is the Schema for the externalsecretsoperators API
