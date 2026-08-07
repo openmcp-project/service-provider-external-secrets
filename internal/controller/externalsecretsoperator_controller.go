@@ -28,6 +28,7 @@ import (
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	"github.com/openmcp-project/controller-utils/pkg/manager"
+	fluxpkg "github.com/openmcp-project/controller-utils/pkg/manager/flux"
 
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
@@ -40,6 +41,19 @@ import (
 )
 
 const conditionReasonError = "ReconcileError"
+
+// resolvedVersion wraps an apiv1alpha1.RequestedVersion with the prefixed chart
+// pull secret name, satisfying fluxpkg.FluxResourceVersion for the
+// ManageFluxResources call. This is the service-provider adapter pattern:
+// the CRD type stores the raw secret name; the controller supplies the
+// namespace-prefixed copy name when registering Flux resources.
+type resolvedVersion struct {
+	apiv1alpha1.RequestedVersion
+	chartPullSecret string
+}
+
+// GetChartPullSecret overrides the promoted method to return the prefixed name.
+func (r resolvedVersion) GetChartPullSecret() string { return r.chartPullSecret }
 
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
@@ -161,8 +175,9 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	// Note: No prefix needed - these go to the MCP cluster's ESO namespace,
 	// not the shared tenant namespace where collisions can occur
 	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		manager.ManagePullSecret(mcpCluster, imagePullSecret, manager.SecretCopyConfig{
+		manager.ManagePullSecret(mcpCluster, manager.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
+			SourceName:      imagePullSecret.Name,
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: externalSecretsNamespace,
 			TargetName:      imagePullSecret.Name,
@@ -175,22 +190,28 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 		if err != nil {
 			return nil, fmt.Errorf("error generating secret name: %w", err)
 		}
-		manager.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: esoVersion.ChartPullSecret}, manager.SecretCopyConfig{
+		manager.ManagePullSecret(platformCluster, manager.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
+			SourceName:      esoVersion.ChartPullSecret,
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: tenantNamespace,
 			TargetName:      prefixedChartPullSecret,
 		})
 	}
-	manager.ManageFluxResources(manager.ManageFluxResourcesParams{
-		Cluster:             platformCluster,
-		MCPNamespace:        externalSecretsNamespace,
-		ChartPullSecretName: prefixedChartPullSecret,
-		Interval:            pc.PollInterval(),
-		ClusterContext:      clusters,
-		RequestedVersion:    esoVersion,
-		OCIRepositoryName:   pc.Name,
-		HelmReleaseName:     pc.Name,
+	// resolvedVersion supplies the prefixed secret name to the flux framework
+	// while keeping all other version fields from the spec.
+	rv := resolvedVersion{
+		RequestedVersion: esoVersion,
+		chartPullSecret:  prefixedChartPullSecret,
+	}
+	fluxpkg.ManageFluxResources(fluxpkg.ManageFluxResourcesParams{
+		Cluster:           platformCluster,
+		MCPNamespace:      externalSecretsNamespace,
+		Interval:          pc.PollInterval(),
+		ClusterContext:    clusters,
+		RequestedVersion:  rv,
+		OCIRepositoryName: pc.Name,
+		HelmReleaseName:   pc.Name,
 	})
 	mgr := manager.NewManager(pc.Name)
 	mgr.AddCluster(mcpCluster)
@@ -207,11 +228,11 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	return mgr, nil
 }
 
-func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (manager.RequestedVersion, error) {
+func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.RequestedVersion, error) {
 	for _, configVersion := range pc.Spec.Versions {
 		if configVersion.Version == requestedVersion {
 			return configVersion, nil
 		}
 	}
-	return manager.RequestedVersion{}, fmt.Errorf("%w: requested version (%s) is not available", ctrlerrors.ErrInvalidUserInput, requestedVersion)
+	return apiv1alpha1.RequestedVersion{}, fmt.Errorf("%w: requested version (%s) is not available", ctrlerrors.ErrInvalidUserInput, requestedVersion)
 }
