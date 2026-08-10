@@ -1,20 +1,16 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
-    "config:best-practices",
-    "security:openssf-scorecard",
-    "helpers:pinGitHubActionDigests",
-    ":rebaseStalePrs",
+    "github>openmcp-project/.github:renovate-config",
     ":enableVulnerabilityAlerts"
   ],
   "git-submodules": {
     "enabled": true
   },
-  "postUpdateOptions": [
-    "gomodTidy"
+  "gitIgnoredAuthors": [
+    "github-actions[bot]@users.noreply.github.com"
   ],
-    "ignorePresets": [
+  "ignorePresets": [
     ":ignoreModulesAndTests"
   ],
   "customManagers": [
@@ -43,14 +39,6 @@
       "groupName": "openmcp-project Go dependencies",
       "minimumReleaseAge": "0 days",
       "automerge": true
-    },
-    {
-      "description": "Group openmcp-project/build submodule and workflow updates",
-      "matchDepNames": [
-        "hack/common",
-        "openmcp-project/build"
-      ],
-      "groupName": "openmcp-project/build"
     }
   ]
 }
