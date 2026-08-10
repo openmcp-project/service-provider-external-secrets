@@ -17,23 +17,23 @@ spec:
             - name: privateregcred
     - version: "latest"
       # renovate: datasource=helm depName=external-secrets registryUrl=https://charts.external-secrets.io
-      chartVersion: "2.8.0"
+      chartVersion: "2.9.0"
       chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
       helmValues:
         image:
           repository: ghcr.io/external-secrets/external-secrets
           # -- The image tag to use. The default is the chart appVersion.
           # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
-          tag: "v2.8.0"
+          tag: "v2.9.0"
         webhook:
           image:
             repository: ghcr.io/external-secrets/external-secrets
             # -- The image tag to use. The default is the chart appVersion.
             # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
-            tag: "v2.8.0"
+            tag: "v2.9.0"
         certController:
           image:
             repository: ghcr.io/external-secrets/external-secrets
             # -- The image tag to use. The default is the chart appVersion.
             # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
-            tag: "v2.8.0"
+            tag: "v2.9.0"
