@@ -1,14 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>openmcp-project/.github:renovate-config",
-    ":enableVulnerabilityAlerts"
-  ],
-  "git-submodules": {
-    "enabled": true
-  },
-  "gitIgnoredAuthors": [
-    "github-actions[bot]@users.noreply.github.com"
+    "github>openmcp-project/.github:renovate-config"
   ],
   "ignorePresets": [
     ":ignoreModulesAndTests"
@@ -24,21 +17,6 @@
         "// renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+[^\"]*\"[^:]+:(?<currentValue>[^\"]+)\"",
         "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+) registryUrl=(?<registryUrl>[^\\s]+)\\s+[^\"]*[^:]+:\\s+\"(?<currentValue>[^\"]+)\""
       ]
-    }
-  ],
-  "packageRules": [
-    {
-      "description": "Group openmcp-project Go components",
-      "matchManagers": [
-        "gomod"
-      ],
-      "matchPackageNames": [
-        "github.com/openmcp-project/*",
-        "openmcp-project/*"
-      ],
-      "groupName": "openmcp-project Go dependencies",
-      "minimumReleaseAge": "0 days",
-      "automerge": true
     }
   ]
 }
