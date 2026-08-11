@@ -24,6 +24,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+const defaultPollInterval = time.Minute
+
 // RequestedVersion defines a version of a Service Operator that can be installed.
 // It implements flux.FluxResourceVersion (implicitly — no import needed).
 // +kubebuilder:object:generate=true
@@ -134,5 +136,8 @@ func init() {
 
 // PollInterval returns the poll interval duration from the spec.
 func (o *ProviderConfig) PollInterval() time.Duration {
+	if o.Spec.PollInterval == nil {
+		return defaultPollInterval
+	}
 	return o.Spec.PollInterval.Duration
 }

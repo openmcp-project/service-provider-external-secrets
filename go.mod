@@ -22,7 +22,6 @@ require (
 )
 
 replace github.com/openmcp-project/controller-utils => ../controller-utils
-
 replace github.com/openmcp-project/openmcp-operator/api => ../openmcp-operator/api
 
 require (

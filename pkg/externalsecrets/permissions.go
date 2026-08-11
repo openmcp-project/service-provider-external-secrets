@@ -50,8 +50,8 @@ func ResolveEsoNamespace(_ context.Context, obj *externalsecretsoperatorsv1alpha
 	return nil, fmt.Errorf("version %s not found in ProviderConfig", obj.Spec.Version)
 }
 
-// TokenAccesGenerator returns a TokenConfig with the RBAC permissions required to install ESO.
-func TokenAccesGenerator(_ reconcile.Request, additionalData ...any) (*clustersv1alpha1.TokenConfig, error) {
+// TokenAccessGenerator returns a TokenConfig with the RBAC permissions required to install ESO.
+func TokenAccessGenerator(_ reconcile.Request, additionalData ...any) (*clustersv1alpha1.TokenConfig, error) {
 	namespace := DefaultNamespace
 	for _, data := range additionalData {
 		ns, ok := data.(ESONamespace)

@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -47,6 +48,42 @@ type ManagedResource struct {
 	Location string `json:"location,omitempty"`
 }
 
+// GetAPIGroup returns the API group of the managed resource, or empty string if unset.
+func (m *ManagedResource) GetAPIGroup() string {
+	if m.APIGroup == nil {
+		return ""
+	}
+	return *m.APIGroup
+}
+
+// GetKind returns the kind of the managed resource.
+func (m *ManagedResource) GetKind() string {
+	return m.Kind
+}
+
+// GetName returns the name of the managed resource.
+func (m *ManagedResource) GetName() string {
+	return m.Name
+}
+
+// GetNamespace returns the namespace of the managed resource, or empty string if cluster-scoped.
+func (m *ManagedResource) GetNamespace() string {
+	if m.Namespace == nil {
+		return ""
+	}
+	return *m.Namespace
+}
+
+// GetLocation returns the location of the managed resource.
+func (m *ManagedResource) GetLocation() string {
+	return m.Location
+}
+
+// GetStatus returns the status of the managed resource.
+func (m *ManagedResource) GetStatus() ManagedResourceStatus {
+	return m.Status
+}
+
 // ManagedResourceStatus is the status of a ManagedResource
 type ManagedResourceStatus struct {
 	// +optional
@@ -58,6 +95,11 @@ type ManagedResourceStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// SetCondition updates the Condition field of the MangedResourceStatus
+func (ms *ManagedResourceStatus) SetCondition(condition metav1.Condition) {
+	meta.SetStatusCondition(&ms.Conditions, condition)
 }
 
 // ExternalSecretsOperator is the Schema for the externalsecretsoperators API
@@ -121,40 +163,4 @@ func (o *ExternalSecretsOperator) SetPhase(phase string) {
 // SetObservedGeneration sets the observed generation of the ExternalSecretsOperator resource
 func (o *ExternalSecretsOperator) SetObservedGeneration(gen int64) {
 	o.Status.ObservedGeneration = gen
-}
-
-// GetAPIVersion returns the API group of the managed resource, or empty string if unset.
-func (m *ManagedResource) GetAPIVersion() string {
-	if m.APIGroup == nil {
-		return ""
-	}
-	return *m.APIGroup
-}
-
-// GetKind returns the kind of the managed resource.
-func (m *ManagedResource) GetKind() string {
-	return m.Kind
-}
-
-// GetName returns the name of the managed resource.
-func (m *ManagedResource) GetName() string {
-	return m.Name
-}
-
-// GetNamespace returns the namespace of the managed resource, or empty string if cluster-scoped.
-func (m *ManagedResource) GetNamespace() string {
-	if m.Namespace == nil {
-		return ""
-	}
-	return *m.Namespace
-}
-
-// GetLocation returns the location of the managed resource.
-func (m *ManagedResource) GetLocation() string {
-	return m.Location
-}
-
-// GetStatus returns the status of the managed resource.
-func (m *ManagedResource) GetStatus() ManagedResourceStatus {
-	return m.Status
 }

@@ -338,7 +338,7 @@ func main() {
 		}, nil
 	}).
 		WithNamespaceGenerator(advanced.DefaultNamespaceGeneratorForMCP).
-		WithTokenAccessGenerator(externalsecrets.TokenAccesGenerator).
+		WithTokenAccessGenerator(externalsecrets.TokenAccessGenerator).
 		WithScheme(mcpScheme).
 		Build()
 

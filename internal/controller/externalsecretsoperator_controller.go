@@ -21,15 +21,17 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	fluxpkg "github.com/openmcp-project/controller-utils/pkg/manager/flux"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	"github.com/openmcp-project/controller-utils/pkg/manager"
-	fluxpkg "github.com/openmcp-project/controller-utils/pkg/manager/flux"
 
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
@@ -75,7 +77,7 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	resources, done, err := mgr.Apply(ctx)
-	obj.Status.Resources = toResources(resources)
+	obj.Status.Resources = toResources(resources, obj.Status.Resources)
 	if err != nil {
 		return ctrl.Result{}, updateStatusError(obj, err)
 	}
@@ -95,64 +97,76 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	resources, done, err := mgr.Delete(ctx)
-	obj.Status.Resources = toResources(resources)
+	obj.Status.Resources = toResources(resources, obj.Status.Resources)
 	if err != nil {
 		return ctrl.Result{}, updateStatusError(obj, err)
 	}
 	if !done {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: pc.PollInterval()}, nil
 	}
 	return ctrl.Result{}, nil
 }
 
 // toResources converts the framework's []manager.ManagedResource interface slice into the
 // CRD-embedded concrete []apiv1alpha1.ManagedResource slice owned by SPES.
-func toResources(in []manager.ManagedResource) []apiv1alpha1.ManagedResource {
+// existing is the previous Resources slice from the object's status; it is used to
+// preserve LastTransitionTime on conditions that have not changed status.
+func toResources(in []manager.ManagedResource, existing []apiv1alpha1.ManagedResource) []apiv1alpha1.ManagedResource {
+	type resourceKey struct {
+		APIGroup string
+		Kind string
+		Namespace string
+		Name string
+	}
+	// Index existing conditions by Kind+Namespace+Name so SetCondition can preserve LastTransitionTime.
+	prevConditions := make(map[resourceKey][]metav1.Condition, len(existing))
+	for _, e := range existing {
+		key := resourceKey{e.GetAPIGroup(), e.GetKind(), e.GetNamespace(), e.GetName()}
+		prevConditions[key] = e.Status.Conditions
+	}
+
 	out := make([]apiv1alpha1.ManagedResource, len(in))
 	for i, r := range in {
-		apiGroup := r.GetAPIVersion()
+		status := r.GetStatus()
+
+		key := resourceKey{r.GetAPIGroup(), r.GetKind(), *r.GetNamespace(), r.GetName()}
+		managedResourceStatus := apiv1alpha1.ManagedResourceStatus{
+			Phase:      status.Phase,
+			Message:    status.Message,
+			Conditions: append([]metav1.Condition{}, prevConditions[key]...),
+		}
+
+		condition := status.GetCondition(r.GetGeneration())
+		managedResourceStatus.SetCondition(condition)
+
+		apiGroup := r.GetAPIGroup()
 		var apiGroupPtr *string
 		if apiGroup != "" {
 			apiGroupPtr = &apiGroup
 		}
+
 		out[i] = apiv1alpha1.ManagedResource{
 			TypedObjectReference: corev1.TypedObjectReference{
 				APIGroup:  apiGroupPtr,
 				Kind:      r.GetKind(),
 				Name:      r.GetName(),
-				Namespace: r.GetNamespace(),
+				Namespace: nilIfEmpty(r.GetNamespace()),
 			},
-			Status: apiv1alpha1.ManagedResourceStatus{
-				Phase:      r.GetStatus().Phase,
-				Message:    r.GetStatus().Message,
-				Conditions: managedResourceConditions(r.GetStatus()),
-			},
+			Status:   managedResourceStatus,
 			Location: string(r.GetLocation()),
 		}
 	}
 	return out
 }
 
-// managedResourceConditions synthesizes a Ready condition from the manager status.
-// TODO: use meta.SetStatusCondition for proper LastTransitionTime management (avoids resetting on every reconcile).
-func managedResourceConditions(s manager.ManagedResourceStatus) []metav1.Condition {
-	condStatus := metav1.ConditionFalse
-	if s.Phase == manager.StatusPhaseReady {
-		condStatus = metav1.ConditionTrue
+// NilIfEmpty returns nil if s is the empty string, otherwise a pointer to s.
+// Use this when populating optional *string fields in Kubernetes API objects
+// (e.g. TypedObjectReference.Namespace) from a plain string namespace.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
 	}
-	reason := s.Phase
-	if reason == "" {
-		reason = "Unknown"
-	}
-	return []metav1.Condition{
-		{
-			Type:               "Ready",
-			Status:             condStatus,
-			Reason:             reason,
-			Message:            s.Message,
-			LastTransitionTime: metav1.Now(),
-		},
-	}
+	return ptr.To(s)
 }
 
 func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, err error) error {
@@ -171,6 +185,9 @@ func userErrorMessage(err error) string {
 	}
 	if errors.Is(err, manager.ErrOrphanCleanup) {
 		messages = append(messages, manager.ErrOrphanCleanup.Error())
+	}
+	if len(messages) == 0 {
+		messages = append(messages, "internal reconcile error — check controller logs")
 	}
 	return strings.Join(messages, "; ")
 }
@@ -228,7 +245,7 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 		RequestedVersion: esoVersion,
 		chartPullSecret:  prefixedChartPullSecret,
 	}
-	fluxpkg.ManageFluxResources(fluxpkg.ManageFluxResourcesParams{
+	err = fluxpkg.ManageFluxResources(fluxpkg.ManageFluxResourcesParams{
 		Cluster:           platformCluster,
 		MCPNamespace:      externalSecretsNamespace,
 		Interval:          pc.PollInterval(),
@@ -237,13 +254,21 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 		OCIRepositoryName: pc.Name,
 		HelmReleaseName:   pc.Name,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("configuring Flux resources: %w", err)
+	}
 	mgr := manager.NewManager(pc.Name)
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
 
-	platformSecretCleaner := manager.NewSecretCleaner(platformCluster, pc.Name, tenantNamespace, []corev1.LocalObjectReference{
-		{Name: prefixedChartPullSecret},
-	})
+	var secretsToKeep []corev1.LocalObjectReference
+	if prefixedChartPullSecret != "" {
+		secretsToKeep = []corev1.LocalObjectReference{
+			{Name: prefixedChartPullSecret},
+		}
+	}
+
+	platformSecretCleaner := manager.NewSecretCleaner(platformCluster, pc.Name, tenantNamespace, secretsToKeep)
 	controlPlaneSecretCleaner := manager.NewSecretCleaner(mcpCluster, pc.Name, externalSecretsNamespace, helmValues.Global.ImagePullSecrets)
 
 	mgr.AddCleaner(platformSecretCleaner)

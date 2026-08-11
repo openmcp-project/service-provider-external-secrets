@@ -24,6 +24,7 @@ import (
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
 	manager "github.com/openmcp-project/controller-utils/pkg/manager"
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 )
@@ -113,10 +114,10 @@ func Test_updateStatusError(t *testing.T) {
 			wantMessage: manager.ErrManagedResourcesFailed.Error(),
 		},
 		{
-			name:        "no user-facing error",
+			name:        "non-framework error surfaces generic fallback message",
 			obj:         &apiv1alpha1.ExternalSecretsOperator{},
 			err:         errors.New("internal detail"),
-			wantMessage: "",
+			wantMessage: "internal reconcile error — check controller logs",
 		},
 		{
 			name:            "invalid user input is ignored",
@@ -129,7 +130,11 @@ func Test_updateStatusError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gotErr := updateStatusError(tt.obj, tt.err)
-			assert.Equal(t, tt.wantMessage, tt.obj.Status.Conditions[0].Message)
+			cond := tt.obj.Status.Conditions[0]
+			assert.Equal(t, tt.wantMessage, cond.Message)
+			assert.Equal(t, metav1.ConditionFalse, cond.Status)
+			assert.Equal(t, conditionReasonError, cond.Reason)
+			assert.Equal(t, tt.wantMessage, cond.Message)
 			if tt.wantIgnoreError {
 				assert.Nil(t, gotErr)
 				return
@@ -137,4 +142,12 @@ func Test_updateStatusError(t *testing.T) {
 			assert.Error(t, gotErr)
 		})
 	}
+}
+
+func TestIfnilIsEmpty(t *testing.T) {
+	t.Run("test nilIfEmpty function", func(t *testing.T) {
+		s := "test"
+		assert.Empty(t, nilIfEmpty(""), "Correct string is empty")
+		assert.Equal(t, nilIfEmpty(s), &s, "Points to equal value")
+	})
 }
