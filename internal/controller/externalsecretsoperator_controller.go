@@ -113,10 +113,10 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 // preserve LastTransitionTime on conditions that have not changed status.
 func toResources(in []manager.ManagedResource, existing []apiv1alpha1.ManagedResource) []apiv1alpha1.ManagedResource {
 	type resourceKey struct {
-		APIGroup string
-		Kind string
+		APIGroup  string
+		Kind      string
 		Namespace string
-		Name string
+		Name      string
 	}
 	// Index existing conditions by Kind+Namespace+Name so SetCondition can preserve LastTransitionTime.
 	prevConditions := make(map[resourceKey][]metav1.Condition, len(existing))
@@ -129,7 +129,7 @@ func toResources(in []manager.ManagedResource, existing []apiv1alpha1.ManagedRes
 	for i, r := range in {
 		status := r.GetStatus()
 
-		key := resourceKey{r.GetAPIGroup(), r.GetKind(), *r.GetNamespace(), r.GetName()}
+		key := resourceKey{r.GetAPIGroup(), r.GetKind(), r.GetNamespace(), r.GetName()}
 		managedResourceStatus := apiv1alpha1.ManagedResourceStatus{
 			Phase:      status.Phase,
 			Message:    status.Message,
