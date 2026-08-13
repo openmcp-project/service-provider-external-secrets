@@ -23,8 +23,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -45,19 +43,6 @@ import (
 
 const conditionReasonError = "ReconcileError"
 
-// resolvedVersion wraps an apiv1alpha1.RequestedVersion with the prefixed chart
-// pull secret name, satisfying fluxpkg.FluxResourceVersion for the
-// ManageFluxResources call. This is the service-provider adapter pattern:
-// the CRD type stores the raw secret name; the controller supplies the
-// namespace-prefixed copy name when registering Flux resources.
-type resolvedVersion struct {
-	apiv1alpha1.RequestedVersion
-	chartPullSecret string
-}
-
-// GetChartPullSecret overrides the promoted method to return the prefixed name.
-func (r resolvedVersion) GetChartPullSecret() string { return r.chartPullSecret }
-
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
 	// OnboardingCluster is the cluster where this controller watches ExternalSecretsOperator resources and reacts to their changes.
@@ -77,7 +62,7 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	resources, done, err := mgr.Apply(ctx)
-	obj.Status.Resources = toResources(resources, obj.Status.Resources)
+	obj.Status.Resources = manager.ProjectResources(resources, newManagedResource)
 	if err != nil {
 		return ctrl.Result{}, updateStatusError(obj, err)
 	}
@@ -97,7 +82,7 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	resources, done, err := mgr.Delete(ctx)
-	obj.Status.Resources = toResources(resources, obj.Status.Resources)
+	obj.Status.Resources = manager.ProjectResources(resources, newManagedResource)
 	if err != nil {
 		return ctrl.Result{}, updateStatusError(obj, err)
 	}
@@ -107,66 +92,10 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 	return ctrl.Result{}, nil
 }
 
-// toResources converts the framework's []manager.ManagedResource interface slice into the
-// CRD-embedded concrete []apiv1alpha1.ManagedResource slice owned by SPES.
-// existing is the previous Resources slice from the object's status; it is used to
-// preserve LastTransitionTime on conditions that have not changed status.
-func toResources(in []manager.ManagedResource, existing []apiv1alpha1.ManagedResource) []apiv1alpha1.ManagedResource {
-	type resourceKey struct {
-		APIGroup  string
-		Kind      string
-		Namespace string
-		Name      string
-	}
-	// Index existing conditions by Kind+Namespace+Name so SetCondition can preserve LastTransitionTime.
-	prevConditions := make(map[resourceKey][]metav1.Condition, len(existing))
-	for _, e := range existing {
-		key := resourceKey{e.GetAPIGroup(), e.GetKind(), e.GetNamespace(), e.GetName()}
-		prevConditions[key] = e.Status.Conditions
-	}
-
-	out := make([]apiv1alpha1.ManagedResource, len(in))
-	for i, r := range in {
-		status := r.GetStatus()
-
-		key := resourceKey{r.GetAPIGroup(), r.GetKind(), r.GetNamespace(), r.GetName()}
-		managedResourceStatus := apiv1alpha1.ManagedResourceStatus{
-			Phase:      status.Phase,
-			Message:    status.Message,
-			Conditions: append([]metav1.Condition{}, prevConditions[key]...),
-		}
-
-		condition := status.GetCondition(r.GetGeneration())
-		managedResourceStatus.SetCondition(condition)
-
-		apiGroup := r.GetAPIGroup()
-		var apiGroupPtr *string
-		if apiGroup != "" {
-			apiGroupPtr = &apiGroup
-		}
-
-		out[i] = apiv1alpha1.ManagedResource{
-			TypedObjectReference: corev1.TypedObjectReference{
-				APIGroup:  apiGroupPtr,
-				Kind:      r.GetKind(),
-				Name:      r.GetName(),
-				Namespace: nilIfEmpty(r.GetNamespace()),
-			},
-			Status:   managedResourceStatus,
-			Location: string(r.GetLocation()),
-		}
-	}
-	return out
-}
-
-// NilIfEmpty returns nil if s is the empty string, otherwise a pointer to s.
-// Use this when populating optional *string fields in Kubernetes API objects
-// (e.g. TypedObjectReference.Namespace) from a plain string namespace.
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return ptr.To(s)
+// newManagedResource constructs a fresh, writable CRD-embedded ManagedResource
+// for manager.ProjectResources to populate via its setter interface.
+func newManagedResource() *apiv1alpha1.ManagedResource {
+	return &apiv1alpha1.ManagedResource{}
 }
 
 func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, err error) error {
@@ -202,7 +131,7 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	if err != nil {
 		return nil, err
 	}
-	helmValues, err := externalsecrets.ExtractHelmValues(esoVersion.HelmValues)
+	helmValues, err := externalsecrets.ExtractHelmValues(esoVersion.GetHelmValues())
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
@@ -215,42 +144,23 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	// sync image pull secrets from platform cluster to mcp
 	// Note: No prefix needed - these go to the MCP cluster's ESO namespace,
 	// not the shared tenant namespace where collisions can occur
-	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		manager.ManagePullSecret(mcpCluster, manager.SecretCopyConfig{
-			SourceClient:    platformCluster.GetClient(),
-			SourceName:      imagePullSecret.Name,
-			SourceNamespace: r.PodNamespace,
-			TargetNamespace: externalSecretsNamespace,
-			TargetName:      imagePullSecret.Name,
-		})
-	}
+	r.manageImagePullSecrets(platformCluster, mcpCluster, helmValues, externalSecretsNamespace)
 	// sync chart pull secrets within platform cluster from pod namespace to tenant namespace
-	var prefixedChartPullSecret string
-	if esoVersion.ChartPullSecret != "" {
-		prefixedChartPullSecret, err = manager.PrefixSecretName(esoVersion.ChartPullSecret, externalsecrets.ChartPullSecretPrefix)
-		if err != nil {
-			return nil, fmt.Errorf("error generating secret name: %w", err)
-		}
-		manager.ManagePullSecret(platformCluster, manager.SecretCopyConfig{
-			SourceClient:    platformCluster.GetClient(),
-			SourceName:      esoVersion.ChartPullSecret,
-			SourceNamespace: r.PodNamespace,
-			TargetNamespace: tenantNamespace,
-			TargetName:      prefixedChartPullSecret,
-		})
+	prefixedChartPullSecret, err := r.manageChartPullSecret(platformCluster, esoVersion, tenantNamespace)
+	if err != nil {
+		return nil, err
 	}
-	// resolvedVersion supplies the prefixed secret name to the flux framework
-	// while keeping all other version fields from the spec.
-	rv := resolvedVersion{
-		RequestedVersion: esoVersion,
-		chartPullSecret:  prefixedChartPullSecret,
+
+	fluxResourceVersion := esoVersion
+	if prefixedChartPullSecret != "" {
+		fluxResourceVersion.ChartPullSecret = prefixedChartPullSecret
 	}
 	err = fluxpkg.ManageFluxResources(fluxpkg.ManageFluxResourcesParams{
 		Cluster:           platformCluster,
 		MCPNamespace:      externalSecretsNamespace,
 		Interval:          pc.PollInterval(),
 		ClusterContext:    clusters,
-		RequestedVersion:  rv,
+		RequestedVersion:  fluxResourceVersion,
 		OCIRepositoryName: pc.Name,
 		HelmReleaseName:   pc.Name,
 	})
@@ -275,6 +185,42 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 	mgr.AddCleaner(controlPlaneSecretCleaner)
 
 	return mgr, nil
+}
+
+// manageImagePullSecrets registers copies of the image pull secrets from the
+// platform cluster's pod namespace into the MCP cluster's ESO namespace.
+func (r *ExternalSecretsOperatorReconciler) manageImagePullSecrets(platformCluster, mcpCluster manager.ManagedCluster, helmValues *externalsecrets.HelmValues, externalSecretsNamespace string) {
+	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
+		manager.ManagePullSecret(mcpCluster, manager.SecretCopyConfig{
+			SourceClient:    platformCluster.GetClient(),
+			SourceName:      imagePullSecret.Name,
+			SourceNamespace: r.PodNamespace,
+			TargetNamespace: externalSecretsNamespace,
+			TargetName:      imagePullSecret.Name,
+		})
+	}
+}
+
+// manageChartPullSecret registers a prefixed copy of the chart pull secret within
+// the platform cluster (pod namespace -> tenant namespace) and returns the prefixed
+// name, or an empty string if no chart pull secret is configured.
+func (r *ExternalSecretsOperatorReconciler) manageChartPullSecret(platformCluster manager.ManagedCluster, esoVersion apiv1alpha1.RequestedVersion, tenantNamespace string) (string, error) {
+	sourceSecret := esoVersion.GetChartPullSecret()
+	if sourceSecret == "" {
+		return "", nil
+	}
+	prefixedChartPullSecret, err := manager.PrefixSecretName(sourceSecret, externalsecrets.ChartPullSecretPrefix)
+	if err != nil {
+		return "", fmt.Errorf("error generating secret name: %w", err)
+	}
+	manager.ManagePullSecret(platformCluster, manager.SecretCopyConfig{
+		SourceClient:    platformCluster.GetClient(),
+		SourceName:      sourceSecret,
+		SourceNamespace: r.PodNamespace,
+		TargetNamespace: tenantNamespace,
+		TargetName:      prefixedChartPullSecret,
+	})
+	return prefixedChartPullSecret, nil
 }
 
 func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.RequestedVersion, error) {

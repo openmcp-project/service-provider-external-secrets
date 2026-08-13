@@ -143,11 +143,3 @@ func Test_updateStatusError(t *testing.T) {
 		})
 	}
 }
-
-func TestIfnilIsEmpty(t *testing.T) {
-	t.Run("test nilIfEmpty function", func(t *testing.T) {
-		s := "test"
-		assert.Empty(t, nilIfEmpty(""), "Correct string is empty")
-		assert.Equal(t, nilIfEmpty(s), &s, "Points to equal value")
-	})
-}

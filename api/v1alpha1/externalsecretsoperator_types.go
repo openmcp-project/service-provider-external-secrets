@@ -17,9 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/openmcp-project/controller-utils/pkg/manager"
 	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -36,7 +36,7 @@ type ExternalSecretsOperatorStatus struct {
 
 	// Resources managed by this External Secrets Operator instance
 	// +optional
-	Resources []ManagedResource `json:"resources,omitempty"`
+	Resources []*ManagedResource `json:"resources,omitempty"`
 }
 
 // ManagedResource are helper resources managed by the service-provider-external-secrets
@@ -48,40 +48,32 @@ type ManagedResource struct {
 	Location string `json:"location,omitempty"`
 }
 
-// GetAPIGroup returns the API group of the managed resource, or empty string if unset.
-func (m *ManagedResource) GetAPIGroup() string {
-	if m.APIGroup == nil {
-		return ""
+// SetReference stores the identity of the managed resource. It implements
+// manager.ResourceStatusWriter, deciding here how optional fields
+// (APIGroup, Namespace) are represented as pointers in the API type.
+func (m *ManagedResource) SetReference(ref manager.ResourceRef) {
+	m.APIGroup = nilIfEmpty(ref.APIGroup)
+	m.Kind = ref.Kind
+	m.Name = ref.Name
+	m.Namespace = nilIfEmpty(ref.Namespace)
+	m.Location = ref.Location
+}
+
+// SetPhase stores the lifecycle phase and message of the managed resource.
+// It implements manager.ResourceStatusWriter.
+func (m *ManagedResource) SetPhase(phase, message string) {
+	m.Status.Phase = phase
+	m.Status.Message = message
+}
+
+// nilIfEmpty returns nil if s is the empty string, otherwise a pointer to s.
+// Use this when populating optional *string fields in Kubernetes API objects
+// (e.g. TypedObjectReference.Namespace) from a plain string.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
 	}
-	return *m.APIGroup
-}
-
-// GetKind returns the kind of the managed resource.
-func (m *ManagedResource) GetKind() string {
-	return m.Kind
-}
-
-// GetName returns the name of the managed resource.
-func (m *ManagedResource) GetName() string {
-	return m.Name
-}
-
-// GetNamespace returns the namespace of the managed resource, or empty string if cluster-scoped.
-func (m *ManagedResource) GetNamespace() string {
-	if m.Namespace == nil {
-		return ""
-	}
-	return *m.Namespace
-}
-
-// GetLocation returns the location of the managed resource.
-func (m *ManagedResource) GetLocation() string {
-	return m.Location
-}
-
-// GetStatus returns the status of the managed resource.
-func (m *ManagedResource) GetStatus() ManagedResourceStatus {
-	return m.Status
+	return &s
 }
 
 // ManagedResourceStatus is the status of a ManagedResource
@@ -90,16 +82,16 @@ type ManagedResourceStatus struct {
 	Phase string `json:"phase,omitempty"`
 	// +optional
 	Message string `json:"message,omitempty"`
-	// Conditions contains the conditions of the managed resource.
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// SetCondition updates the Condition field of the MangedResourceStatus
-func (ms *ManagedResourceStatus) SetCondition(condition metav1.Condition) {
-	meta.SetStatusCondition(&ms.Conditions, condition)
+// GetPhase returns the lifecycle phase of the managed resource.
+func (m *ManagedResourceStatus) GetPhase() string {
+	return m.Phase
+}
+
+// GetMessage returns the human-readable status message of the managed resource.
+func (m *ManagedResourceStatus) GetMessage() string {
+	return m.Message
 }
 
 // ExternalSecretsOperator is the Schema for the externalsecretsoperators API
