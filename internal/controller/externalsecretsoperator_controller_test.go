@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
-	manager "github.com/openmcp-project/controller-utils/pkg/manager"
+	"github.com/openmcp-project/extensibility-utils/pkg/objectmanager"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -92,26 +92,26 @@ func Test_updateStatusError(t *testing.T) {
 		{
 			name:        "resource error",
 			obj:         &apiv1alpha1.ExternalSecretsOperator{},
-			err:         manager.ErrManagedResourcesFailed,
-			wantMessage: manager.ErrManagedResourcesFailed.Error(),
+			err:         objectmanager.ErrManagedObjectsFailed,
+			wantMessage: objectmanager.ErrManagedObjectsFailed.Error(),
 		},
 		{
 			name:        "cleanup error",
 			obj:         &apiv1alpha1.ExternalSecretsOperator{},
-			err:         manager.ErrOrphanCleanup,
-			wantMessage: manager.ErrOrphanCleanup.Error(),
+			err:         objectmanager.ErrCleanup,
+			wantMessage: objectmanager.ErrCleanup.Error(),
 		},
 		{
 			name:        "combined resource and cleanup error",
 			obj:         &apiv1alpha1.ExternalSecretsOperator{},
-			err:         fmt.Errorf("%w: %w", manager.ErrManagedResourcesFailed, manager.ErrOrphanCleanup),
-			wantMessage: fmt.Sprintf("%s; %s", manager.ErrManagedResourcesFailed.Error(), manager.ErrOrphanCleanup.Error()),
+			err:         fmt.Errorf("%w: %w", objectmanager.ErrManagedObjectsFailed, objectmanager.ErrCleanup),
+			wantMessage: fmt.Sprintf("%s; %s", objectmanager.ErrManagedObjectsFailed.Error(), objectmanager.ErrCleanup.Error()),
 		},
 		{
 			name:        "resource error wrapping non-user-facing error",
 			obj:         &apiv1alpha1.ExternalSecretsOperator{},
-			err:         fmt.Errorf("%w: %w", manager.ErrManagedResourcesFailed, errors.New("internal detail")),
-			wantMessage: manager.ErrManagedResourcesFailed.Error(),
+			err:         fmt.Errorf("%w: %w", objectmanager.ErrManagedObjectsFailed, errors.New("internal detail")),
+			wantMessage: objectmanager.ErrManagedObjectsFailed.Error(),
 		},
 		{
 			name:        "non-framework error surfaces generic fallback message",
@@ -122,8 +122,8 @@ func Test_updateStatusError(t *testing.T) {
 		{
 			name:            "invalid user input is ignored",
 			obj:             &apiv1alpha1.ExternalSecretsOperator{},
-			err:             fmt.Errorf("%w: %w", manager.ErrManagedResourcesFailed, fmt.Errorf("%w: value out of range", ctrlerrors.ErrInvalidUserInput)),
-			wantMessage:     manager.ErrManagedResourcesFailed.Error(),
+			err:             fmt.Errorf("%w: %w", objectmanager.ErrManagedObjectsFailed, fmt.Errorf("%w: value out of range", ctrlerrors.ErrInvalidUserInput)),
+			wantMessage:     objectmanager.ErrManagedObjectsFailed.Error(),
 			wantIgnoreError: true,
 		},
 	}

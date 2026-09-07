@@ -17,9 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/openmcp-project/controller-utils/pkg/manager"
+	"github.com/openmcp-project/extensibility-utils/pkg/objectmanager"
 	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -36,62 +35,7 @@ type ExternalSecretsOperatorStatus struct {
 
 	// Resources managed by this External Secrets Operator instance
 	// +optional
-	Resources []*ManagedResource `json:"resources,omitempty"`
-}
-
-// ManagedResource are helper resources managed by the service-provider-external-secrets
-type ManagedResource struct {
-	corev1.TypedObjectReference `json:",inline"`
-	// +optional
-	Status ManagedResourceStatus `json:"status,omitempty"`
-	// +optional
-	Location string `json:"location,omitempty"`
-}
-
-// SetReference stores the identity of the managed resource. It implements
-// manager.ResourceStatusWriter, deciding here how optional fields
-// (APIGroup, Namespace) are represented as pointers in the API type.
-func (m *ManagedResource) SetReference(ref manager.ResourceRef) {
-	m.APIGroup = nilIfEmpty(ref.APIGroup)
-	m.Kind = ref.Kind
-	m.Name = ref.Name
-	m.Namespace = nilIfEmpty(ref.Namespace)
-	m.Location = ref.Location
-}
-
-// SetPhase stores the lifecycle phase and message of the managed resource.
-// It implements manager.ResourceStatusWriter.
-func (m *ManagedResource) SetPhase(phase, message string) {
-	m.Status.Phase = phase
-	m.Status.Message = message
-}
-
-// nilIfEmpty returns nil if s is the empty string, otherwise a pointer to s.
-// Use this when populating optional *string fields in Kubernetes API objects
-// (e.g. TypedObjectReference.Namespace) from a plain string.
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-// ManagedResourceStatus is the status of a ManagedResource
-type ManagedResourceStatus struct {
-	// +optional
-	Phase string `json:"phase,omitempty"`
-	// +optional
-	Message string `json:"message,omitempty"`
-}
-
-// GetPhase returns the lifecycle phase of the managed resource.
-func (m *ManagedResourceStatus) GetPhase() string {
-	return m.Phase
-}
-
-// GetMessage returns the human-readable status message of the managed resource.
-func (m *ManagedResourceStatus) GetMessage() string {
-	return m.Message
+	Resources []objectmanager.ManagedObject `json:"resources,omitempty"`
 }
 
 // ExternalSecretsOperator is the Schema for the externalsecretsoperators API
