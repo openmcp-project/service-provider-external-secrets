@@ -220,7 +220,7 @@ func resultsToResources(ctx context.Context, results []externalsecrets.Result) (
 		})
 		if res.Error != nil {
 			containsError = true
-			l.Error(res.Error, "objectID", externalsecrets.ObjectID(obj))
+			l.Error(res.Error, "reconcile error", "objectID", externalsecrets.ObjectID(obj))
 		}
 	}
 	return resources, containsError
