@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
+	"github.com/openmcp-project/extensibility-utils/pkg/objectmanager"
+	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-external-secrets/pkg/externalsecrets"
 )
 
 func Test_selectExternalSecretsVersion(t *testing.T) {
@@ -35,7 +35,7 @@ func Test_selectExternalSecretsVersion(t *testing.T) {
 		// Named input parameters for target function.
 		requestedVersion string
 		pc               *apiv1alpha1.ProviderConfig
-		want             apiv1alpha1.ExternalSecretsVersion
+		want             apiv1alpha1.RequestedVersion
 		wantErr          bool
 	}{
 		{
@@ -43,10 +43,10 @@ func Test_selectExternalSecretsVersion(t *testing.T) {
 			requestedVersion: "v1",
 			pc: &apiv1alpha1.ProviderConfig{
 				Spec: apiv1alpha1.ProviderConfigSpec{
-					Versions: []apiv1alpha1.ExternalSecretsVersion{{Version: "v1"}, {Version: "v2"}},
+					Versions: []apiv1alpha1.RequestedVersion{{Version: "v1"}, {Version: "v2"}},
 				},
 			},
-			want: apiv1alpha1.ExternalSecretsVersion{
+			want: apiv1alpha1.RequestedVersion{
 				Version: "v1",
 			},
 			wantErr: false,
@@ -56,10 +56,10 @@ func Test_selectExternalSecretsVersion(t *testing.T) {
 			requestedVersion: "v3",
 			pc: &apiv1alpha1.ProviderConfig{
 				Spec: apiv1alpha1.ProviderConfigSpec{
-					Versions: []apiv1alpha1.ExternalSecretsVersion{{Version: "v1"}, {Version: "v2"}},
+					Versions: []apiv1alpha1.RequestedVersion{{Version: "v1"}, {Version: "v2"}},
 				},
 			},
-			want:    apiv1alpha1.ExternalSecretsVersion{},
+			want:    apiv1alpha1.RequestedVersion{},
 			wantErr: true,
 		},
 	}
@@ -83,62 +83,58 @@ func Test_selectExternalSecretsVersion(t *testing.T) {
 
 func Test_updateStatusError(t *testing.T) {
 	tests := []struct {
-		name string // description of this test case
-		// Named input parameters for target function.
+		name            string
 		obj             *apiv1alpha1.ExternalSecretsOperator
-		resourceErrors  bool
 		err             error
 		wantMessage     string
 		wantIgnoreError bool
 	}{
 		{
-			name:           "resource error",
-			obj:            &apiv1alpha1.ExternalSecretsOperator{},
-			resourceErrors: true,
-			err:            nil,
-			wantMessage:    ErrManagedResources.Error(),
+			name:        "resource error",
+			obj:         &apiv1alpha1.ExternalSecretsOperator{},
+			err:         objectmanager.ErrReconcileManagedObjects,
+			wantMessage: objectmanager.ErrReconcileManagedObjects.Error(),
 		},
 		{
-			name:           "cleanup error",
-			obj:            &apiv1alpha1.ExternalSecretsOperator{},
-			resourceErrors: false,
-			err:            externalsecrets.ErrOrphanCleanup,
-			wantMessage:    externalsecrets.ErrOrphanCleanup.Error(),
+			name:        "cleanup error",
+			obj:         &apiv1alpha1.ExternalSecretsOperator{},
+			err:         objectmanager.ErrCleanup,
+			wantMessage: objectmanager.ErrCleanup.Error(),
 		},
 		{
-			name:           "combined resource and cleanup error",
-			obj:            &apiv1alpha1.ExternalSecretsOperator{},
-			resourceErrors: true,
-			err:            externalsecrets.ErrOrphanCleanup,
-			wantMessage:    fmt.Sprintf("%s; %s", ErrManagedResources.Error(), externalsecrets.ErrOrphanCleanup.Error()),
+			name:        "combined resource and cleanup error",
+			obj:         &apiv1alpha1.ExternalSecretsOperator{},
+			err:         fmt.Errorf("%w: %w", objectmanager.ErrReconcileManagedObjects, objectmanager.ErrCleanup),
+			wantMessage: fmt.Sprintf("%s; %s", objectmanager.ErrReconcileManagedObjects.Error(), objectmanager.ErrCleanup.Error()),
 		},
 		{
-			name:           "resource error and no end-user error",
-			obj:            &apiv1alpha1.ExternalSecretsOperator{},
-			resourceErrors: true,
-			err:            errors.New("non-user-facing-error"),
-			wantMessage:    ErrManagedResources.Error(),
+			name:        "resource error wrapping non-user-facing error",
+			obj:         &apiv1alpha1.ExternalSecretsOperator{},
+			err:         fmt.Errorf("%w: %w", objectmanager.ErrReconcileManagedObjects, errors.New("internal detail")),
+			wantMessage: objectmanager.ErrReconcileManagedObjects.Error(),
 		},
 		{
-			name:           "no end-user error",
-			obj:            &apiv1alpha1.ExternalSecretsOperator{},
-			resourceErrors: false,
-			err:            errors.New("non-user-facing-error"),
-			wantMessage:    "",
+			name:        "non-framework error surfaces generic fallback message",
+			obj:         &apiv1alpha1.ExternalSecretsOperator{},
+			err:         errors.New("internal detail"),
+			wantMessage: "internal reconcile error — check controller logs",
 		},
 		{
-			name:            "ignore functional errors",
+			name:            "invalid user input is ignored",
 			obj:             &apiv1alpha1.ExternalSecretsOperator{},
-			resourceErrors:  true,
-			err:             fmt.Errorf("%w: value out of range", ctrlerrors.ErrInvalidUserInput),
-			wantMessage:     ErrManagedResources.Error(),
+			err:             fmt.Errorf("%w: %w", objectmanager.ErrReconcileManagedObjects, fmt.Errorf("%w: value out of range", ctrlerrors.ErrInvalidUserInput)),
+			wantMessage:     objectmanager.ErrReconcileManagedObjects.Error(),
 			wantIgnoreError: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotErr := updateStatusError(tt.obj, tt.resourceErrors, tt.err)
-			assert.Equal(t, tt.wantMessage, tt.obj.Status.Conditions[0].Message)
+			gotErr := updateStatusError(tt.obj, tt.err)
+			cond := tt.obj.Status.Conditions[0]
+			assert.Equal(t, tt.wantMessage, cond.Message)
+			assert.Equal(t, metav1.ConditionFalse, cond.Status)
+			assert.Equal(t, conditionReasonError, cond.Reason)
+			assert.Equal(t, tt.wantMessage, cond.Message)
 			if tt.wantIgnoreError {
 				assert.Nil(t, gotErr)
 				return
