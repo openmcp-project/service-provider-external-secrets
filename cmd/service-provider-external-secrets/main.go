@@ -114,6 +114,7 @@ func initMcpScheme() {
 func main() {
 	var command string
 	var environment, providerName string
+	var controllerClusterName string
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -153,7 +154,13 @@ func main() {
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
 	}
 
+	flag.StringVar(&controllerClusterName, "service-controller-cluster", string(controller.PlacementMCP), "Cluster where service controllers run: mcp or platform")
 	flag.Parse()
+	controllerCluster := controller.Placement(controllerClusterName)
+	if err := controllerCluster.Validate(); err != nil {
+		setupLog.Error(err, "invalid controller cluster")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -362,6 +369,7 @@ func main() {
 		}).
 		WithRetryInterval(10 * time.Second).
 		Register(mcpClusterRequest)
+
 	spr := serviceprovider.NewAPIReconcilerBuilder[*externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, *externalsecretsoperatorsv1alpha1.ProviderConfig]().
 		EmptyObjectProvider(func() *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator {
 			return &externalsecretsoperatorsv1alpha1.ExternalSecretsOperator{}
@@ -375,6 +383,7 @@ func main() {
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
+			Placement:         controllerCluster,
 		}).
 		AdvancedClusterAccessReconciler(clusterAccessReconciler).
 		AdditionalDataGenerators(externalsecrets.ResolveEsoNamespace).

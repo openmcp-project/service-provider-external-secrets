@@ -29,6 +29,9 @@ const (
 
 // ManageFluxResourcesParams groups all parameters to create the required manage flux resources
 type ManageFluxResourcesParams struct {
+	ControllersOnPlatform bool
+	RemoteNamespace       ManagedObject
+	RemoteCredential      ManagedObject
 	// Cluster defines where the resources will be created
 	Cluster ManagedCluster
 	// MCPNamespace defines the namespace name that deploy ESO
@@ -101,6 +104,10 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 			if !ok {
 				return fmt.Errorf("expected *helmv2.HelmRelease, got %T", o)
 			}
+			var kubeConfig *meta.KubeConfigReference
+			if !p.ControllersOnPlatform {
+				kubeConfig = &meta.KubeConfigReference{SecretRef: &meta.SecretKeyReference{Name: p.ClusterContext.MCPAccessSecretKey.Name, Key: "kubeconfig"}}
+			}
 			helmRelease.Spec = helmv2.HelmReleaseSpec{
 				Interval: metav1.Duration{Duration: p.Interval},
 				ChartRef: &helmv2.CrossNamespaceSourceReference{
@@ -108,17 +115,12 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 					Name:      OCIRepositoryName,
 					Namespace: p.Cluster.GetDefaultNamespace(),
 				},
-				KubeConfig: &meta.KubeConfigReference{
-					SecretRef: &meta.SecretKeyReference{
-						Name: p.ClusterContext.MCPAccessSecretKey.Name,
-						Key:  "kubeconfig",
-					},
-				},
+				KubeConfig: kubeConfig,
 				Install: &helmv2.Install{
 					Remediation: &helmv2.InstallRemediation{
 						Retries: 3,
 					},
-					CreateNamespace: true,
+					CreateNamespace: !p.ControllersOnPlatform,
 				},
 				DriftDetection: &helmv2.DriftDetection{
 					Mode: helmv2.DriftDetectionEnabled,
@@ -129,11 +131,21 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 			}
 			return nil
 		},
-		DependsOn:      []ManagedObject{ociRepo},
+		DependsOn:      compactDependencies(ociRepo, p.RemoteNamespace, p.RemoteCredential),
 		DeletionPolicy: Delete,
 		StatusFunc:     FluxStatus,
 	})
 	p.Cluster.AddObject(helmRelease)
+}
+
+func compactDependencies(objects ...ManagedObject) []ManagedObject {
+	result := make([]ManagedObject, 0, len(objects))
+	for _, object := range objects {
+		if object != nil {
+			result = append(result, object)
+		}
+	}
+	return result
 }
 
 // FluxStatus indicates whether the given object is in phase terminating, pending or ready.

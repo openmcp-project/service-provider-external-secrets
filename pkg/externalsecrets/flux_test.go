@@ -28,44 +28,50 @@ const (
 )
 
 func TestManageFluxResources(t *testing.T) {
-	tests := []struct {
+	type testCase struct {
 		name string // description of this test case
 		// Named input parameters for target function.
 		params ManageFluxResourcesParams
-	}{
-		{
-			name: "APIObject and ProviderConfig values mapping",
-			params: ManageFluxResourcesParams{
-				Cluster:      NewManagedCluster(CreateFakeCluster(t, "platform"), &rest.Config{}, testNamespace, PlatformCluster),
-				MCPNamespace: "external-secrets",
-				Obj: &apiv1alpha1.ExternalSecretsOperator{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test",
-						Namespace: testNamespace,
-					},
-					Spec: apiv1alpha1.ExternalSecretsOperatorSpec{
-						Version: "v2.2.0",
-					},
-				},
-				Interval: time.Hour,
-				ClusterContext: clusteraccess.ClusterContext{
-					MCPAccessSecretKey: client.ObjectKey{
-						Namespace: testNamespace,
-						Name:      testKubeconfigKey,
-					},
-				},
-				ChartPullSecretName: "secret-copy",
-				RequestedVersion: apiv1alpha1.ExternalSecretsVersion{
-					Version:         "v2.2.0",
-					ChartVersion:    "v2.2.0",
-					ChartURL:        new(testCharURL),
-					ChartPullSecret: testChartPullSecret,
-					HelmValues: &apiextensionv1.JSON{
-						Raw: []byte(`{"foo":"bar"}`),
-					},
-				},
-			}},
 	}
+	tests := make([]testCase, 0, 2)
+	tests = append(tests, testCase{
+		name: "APIObject and ProviderConfig values mapping",
+		params: ManageFluxResourcesParams{
+			Cluster:      NewManagedCluster(CreateFakeCluster(t, "platform"), &rest.Config{}, testNamespace, PlatformCluster),
+			MCPNamespace: "external-secrets",
+			Obj: &apiv1alpha1.ExternalSecretsOperator{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: testNamespace,
+				},
+				Spec: apiv1alpha1.ExternalSecretsOperatorSpec{
+					Version: "v2.2.0",
+				},
+			},
+			Interval: time.Hour,
+			ClusterContext: clusteraccess.ClusterContext{
+				MCPAccessSecretKey: client.ObjectKey{
+					Namespace: testNamespace,
+					Name:      testKubeconfigKey,
+				},
+			},
+			ChartPullSecretName: "secret-copy",
+			RequestedVersion: apiv1alpha1.ExternalSecretsVersion{
+				Version:         "v2.2.0",
+				ChartVersion:    "v2.2.0",
+				ChartURL:        new(testCharURL),
+				ChartPullSecret: testChartPullSecret,
+				HelmValues: &apiextensionv1.JSON{
+					Raw: []byte(`{"foo":"bar"}`),
+				},
+			},
+		}})
+	platform := tests[0]
+	platform.name = "controllers install on platform while MCP remains remote"
+	platform.params.Cluster = NewManagedCluster(CreateFakeCluster(t, "platform"), &rest.Config{}, testNamespace, PlatformCluster)
+	platform.params.ControllersOnPlatform = true
+	platform.params.MCPNamespace = testNamespace
+	tests = append(tests, platform)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ManageFluxResources(tt.params)
@@ -97,8 +103,15 @@ func TestManageFluxResources(t *testing.T) {
 			assert.Equal(t, tt.params.Interval, helmRelease.Spec.Interval.Duration)
 			assert.Equal(t, tt.params.MCPNamespace, helmRelease.Spec.StorageNamespace)
 			assert.Equal(t, tt.params.MCPNamespace, helmRelease.Spec.TargetNamespace)
-			assert.Equal(t, tt.params.ClusterContext.MCPAccessSecretKey.Name, helmRelease.Spec.KubeConfig.SecretRef.Name)
-			assert.Equal(t, "kubeconfig", helmRelease.Spec.KubeConfig.SecretRef.Key)
+			if tt.params.ControllersOnPlatform {
+				assert.Nil(t, helmRelease.Spec.KubeConfig)
+				assert.False(t, helmRelease.Spec.Install.CreateNamespace)
+			} else {
+				require.NotNil(t, helmRelease.Spec.KubeConfig)
+				assert.Equal(t, tt.params.ClusterContext.MCPAccessSecretKey.Name, helmRelease.Spec.KubeConfig.SecretRef.Name)
+				assert.Equal(t, "kubeconfig", helmRelease.Spec.KubeConfig.SecretRef.Key)
+				assert.True(t, helmRelease.Spec.Install.CreateNamespace)
+			}
 		})
 	}
 }
