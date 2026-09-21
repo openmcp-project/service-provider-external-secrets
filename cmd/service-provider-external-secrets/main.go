@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openmcp-project/service-provider-external-secrets/internal/onboarding"
+
 	flag "github.com/spf13/pflag"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -114,7 +116,7 @@ func initMcpScheme() {
 func main() {
 	var command string
 	var environment, providerName string
-	var controllerClusterName string
+	var controllerClusterName, onboardingSecretLabel string
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -145,6 +147,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+
+	flag.StringVar(&onboardingSecretLabel, "onboarding-kubeconfig-label", "", "Watch labelled kubeconfig Secrets in the pod namespace instead of requesting one onboarding cluster")
 
 	logging.InitFlags(flag.CommandLine) // add standard logging flags
 
@@ -305,13 +309,17 @@ func main() {
 			},
 		},
 	}
-	onboardingCluster, err := requestOnboardingClusterAccess(ctx, clusterAccessManager, platformCluster, runPermissions, "run")
-	if err != nil {
-		setupLog.Error(err, "Failed to create and wait for onboarding cluster access")
+	var onboardingCluster *clusters.Cluster
+	if onboardingSecretLabel == "" {
+		onboardingCluster, err = requestOnboardingClusterAccess(ctx, clusterAccessManager, platformCluster, runPermissions, "run")
+		if err != nil {
+			setupLog.Error(err, "Failed to request onboarding cluster access")
+			os.Exit(1)
+		}
 	}
 	// end sp specifics
 
-	mgr, err := ctrl.NewManager(onboardingCluster.RESTConfig(), ctrl.Options{
+	mgr, multiMgr, err := onboarding.NewManagers(platformCluster, onboardingCluster, podNamespace, onboardingSecretLabel, ctrl.Options{
 		Scheme:                 onboardingScheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
@@ -329,7 +337,7 @@ func main() {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
-	})
+	}, onboardingScheme)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -370,7 +378,7 @@ func main() {
 		WithRetryInterval(10 * time.Second).
 		Register(mcpClusterRequest)
 
-	spr := serviceprovider.NewAPIReconcilerBuilder[*externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, *externalsecretsoperatorsv1alpha1.ProviderConfig]().
+	reconcilerBuilder := serviceprovider.NewAPIReconcilerBuilder[*externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, *externalsecretsoperatorsv1alpha1.ProviderConfig]().
 		EmptyObjectProvider(func() *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator {
 			return &externalsecretsoperatorsv1alpha1.ExternalSecretsOperator{}
 		}).
@@ -378,7 +386,6 @@ func main() {
 			return &externalsecretsoperatorsv1alpha1.ProviderConfig{}
 		}).
 		PlatformCluster(platformCluster).
-		OnboardingCluster(onboardingCluster).
 		Reconciler(&controller.ExternalSecretsOperatorReconciler{
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
@@ -386,12 +393,19 @@ func main() {
 			Placement:         controllerCluster,
 		}).
 		AdvancedClusterAccessReconciler(clusterAccessReconciler).
-		AdditionalDataGenerators(externalsecrets.ResolveEsoNamespace).
-		MustBuild()
-	if err := spr.SetupWithManager(mgr, providerName); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ExternalSecretsOperator")
+		AdditionalDataGenerators(externalsecrets.ResolveEsoNamespace)
+	if multiMgr != nil {
+		spr := reconcilerBuilder.MulticlusterAccessKey(onboarding.RegisteredNamespaceAccessKey).MustBuildMulticluster()
+		err = spr.SetupWithMulticlusterManager(multiMgr, providerName)
+	} else {
+		spr := reconcilerBuilder.OnboardingCluster(onboardingCluster).MustBuild()
+		err = spr.SetupWithManager(mgr, providerName)
+	}
+	if err != nil {
+		setupLog.Error(err, "unable to create service controller")
 		os.Exit(1)
 	}
+
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -404,7 +418,11 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	startManager := mgr.Start
+	if multiMgr != nil {
+		startManager = multiMgr.Start
+	}
+	if err := startManager(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
