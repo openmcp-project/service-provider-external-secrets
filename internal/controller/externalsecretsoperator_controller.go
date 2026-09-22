@@ -108,11 +108,11 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 	results, err := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
-	if externalsecrets.AllDeleted(results) {
-		return ctrl.Result{}, nil
-	}
 	if resultContainsErrors || err != nil {
 		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
+	}
+	if externalsecrets.AllDeleted(results) {
+		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{
 		RequeueAfter: time.Second * 5,
