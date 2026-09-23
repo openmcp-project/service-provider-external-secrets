@@ -82,13 +82,13 @@ func TestResolveEsoNamespace(t *testing.T) {
 			name:    "ProviderConfig nil",
 			obj:     &externalsecretsoperatorsv1alpha1.ExternalSecretsOperator{},
 			pc:      nil,
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "Obj nil",
 			obj:     nil,
 			pc:      &externalsecretsoperatorsv1alpha1.ProviderConfig{},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "Version Not Found",

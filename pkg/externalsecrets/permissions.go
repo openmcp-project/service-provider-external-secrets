@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
 
 	externalsecretsoperatorsv1alpha1 "github.com/openmcp-project/service-provider-external-secrets/api/v1alpha1"
 
 	rbacv1 "k8s.io/api/rbac/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -26,12 +28,10 @@ const (
 )
 
 // ResolveEsoNamespace is an AdditionalDataResolver that returns the ESO installation namespace.
-func ResolveEsoNamespace(_ context.Context, obj *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, providerConfig *externalsecretsoperatorsv1alpha1.ProviderConfig) (any, error) {
-	if obj == nil {
-		return nil, fmt.Errorf("obj must not be nil")
-	}
-	if providerConfig == nil {
-		return nil, fmt.Errorf("providerConfig must not be nil")
+func ResolveEsoNamespace(ctx context.Context, obj *externalsecretsoperatorsv1alpha1.ExternalSecretsOperator, providerConfig *externalsecretsoperatorsv1alpha1.ProviderConfig) (any, error) {
+	if obj == nil || providerConfig == nil {
+		log.FromContext(ctx).Info("unable to resolve eso system namespace from provider config to restrict control plane permissions")
+		return nil, nil
 	}
 	for _, version := range providerConfig.Spec.Versions {
 		if version.Version != obj.Spec.Version {
@@ -39,7 +39,8 @@ func ResolveEsoNamespace(_ context.Context, obj *externalsecretsoperatorsv1alpha
 		}
 		helmValues, err := ExtractHelmValues(version.HelmValues)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract helm values: %w", err)
+			log.FromContext(ctx).Error(err, "failed to extract helm values")
+			return nil, fmt.Errorf("%w: internal platform configuration", ctrlerrors.ErrInvalidUserInput)
 		}
 		namespace := DefaultNamespace
 		if helmValues.NamespaceOverride != "" {
@@ -47,7 +48,7 @@ func ResolveEsoNamespace(_ context.Context, obj *externalsecretsoperatorsv1alpha
 		}
 		return ESONamespace(namespace), nil
 	}
-	return nil, fmt.Errorf("version %s not found in ProviderConfig", obj.Spec.Version)
+	return nil, fmt.Errorf("%w: requested version (%s) is not available", ctrlerrors.ErrInvalidUserInput, obj.Spec.Version)
 }
 
 // TokenAccesGenerator returns a TokenConfig with the RBAC permissions required to install ESO.
