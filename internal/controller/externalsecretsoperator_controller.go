@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"reflect"
@@ -27,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
@@ -42,6 +44,25 @@ import (
 
 const conditionReasonError = "ReconcileError"
 
+// Placement selects where the managed service controllers are installed.
+type Placement string
+
+const (
+	// PlacementMCP installs the service controllers on the managed control plane.
+	PlacementMCP Placement = "mcp"
+	// PlacementPlatform installs the service controllers on the existing platform cluster.
+	// The controllers use the MCP access credential as their kubeconfig.
+	PlacementPlatform Placement = "platform"
+)
+
+// Validate checks whether the controller cluster value is supported.
+func (c Placement) Validate() error {
+	if c != PlacementMCP && c != PlacementPlatform {
+		return fmt.Errorf("service controller cluster must be %q or %q, got %q", PlacementMCP, PlacementPlatform, c)
+	}
+	return nil
+}
+
 // ErrManagedResources is an end-user facing error if errors are present inside ExternalSecretsOperator.Status.ManagedResources
 var ErrManagedResources = errors.New("resources contain reconcile errors")
 
@@ -53,12 +74,13 @@ type ExternalSecretsOperatorReconciler struct {
 	PlatformCluster *clusters.Cluster
 	// PodNamespace is the namespace where this controller is deployed in.
 	PodNamespace string
+	Placement    Placement
 }
 
 // CreateOrUpdate is called on every add or update event
 func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
-	mgr, err := r.createObjectManager(obj, pc, clusters)
+	mgr, err := r.createObjectManager(ctx, obj, pc, clusters)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
@@ -78,7 +100,7 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 // Delete is called on every delete event
 func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusTerminating(obj)
-	mgr, err := r.createObjectManager(obj, pc, clusters)
+	mgr, err := r.createObjectManager(ctx, obj, pc, clusters)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
@@ -86,11 +108,11 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 	results, err := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
-	if externalsecrets.AllDeleted(results) {
-		return ctrl.Result{}, nil
-	}
 	if resultContainsErrors || err != nil {
 		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
+	}
+	if externalsecrets.AllDeleted(results) {
+		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{
 		RequeueAfter: time.Second * 5,
@@ -121,7 +143,7 @@ func userErrorMessage(err error) string {
 	return strings.Join(errorMessages, "; ")
 }
 
-func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (externalsecrets.Manager, error) {
+func (r *ExternalSecretsOperatorReconciler) createObjectManager(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (externalsecrets.Manager, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace for external secrets deployment: %w", err)
@@ -136,16 +158,24 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 	platformCluster := externalsecrets.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, externalsecrets.PlatformCluster)
-	externalSecretsNamespace := externalsecrets.DefaultNamespace
-	if helmValues.NamespaceOverride != "" {
-		externalSecretsNamespace = helmValues.NamespaceOverride
-	}
+	controllersOnPlatform := r.Placement == PlacementPlatform
+	externalSecretsNamespace := installationNamespace(externalsecrets.DefaultNamespace, helmValues.NamespaceOverride, tenantNamespace, controllersOnPlatform)
 	mcpCluster := externalsecrets.NewManagedCluster(clusters.MCPCluster, clusters.MCPCluster.RESTConfig(), externalSecretsNamespace, externalsecrets.ManagedControlPlane)
+	controllerCluster := mcpCluster
+	var credential, remoteNamespace externalsecrets.ManagedObject
+	if controllersOnPlatform {
+		if err := r.configureRemoteVersion(ctx, obj.DeletionTimestamp.IsZero(), &esoVersion, tenantNamespace, clusters.MCPAccessSecretKey); err != nil {
+			return nil, err
+		}
+		controllerCluster = platformCluster
+		remoteNamespace = externalsecrets.ManageNamespace(mcpCluster, tenantNamespace)
+		credential = externalsecrets.ManageMCPCredential(controllerCluster, r.PlatformCluster.Client(), clusters.MCPAccessSecretKey)
+	}
 	// sync image pull secrets from platform cluster to mcp
 	// Note: No prefix needed - these go to the MCP cluster's ESO namespace,
 	// not the shared tenant namespace where collisions can occur
 	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		externalsecrets.ManagePullSecret(mcpCluster, imagePullSecret, externalsecrets.SecretCopyConfig{
+		externalsecrets.ManagePullSecret(controllerCluster, imagePullSecret, externalsecrets.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: externalSecretsNamespace,
@@ -167,29 +197,46 @@ func (r *ExternalSecretsOperatorReconciler) createObjectManager(obj *apiv1alpha1
 		})
 	}
 	externalsecrets.ManageFluxResources(externalsecrets.ManageFluxResourcesParams{
-		Cluster:             platformCluster,
-		MCPNamespace:        externalSecretsNamespace,
-		ChartPullSecretName: prefixedChartPullSecret,
-		Obj:                 obj,
-		Interval:            pc.PollInterval(),
-		ClusterContext:      clusters,
-		RequestedVersion:    esoVersion,
+		Cluster:               platformCluster,
+		MCPNamespace:          externalSecretsNamespace,
+		ChartPullSecretName:   prefixedChartPullSecret,
+		Obj:                   obj,
+		Interval:              pc.PollInterval(),
+		ClusterContext:        clusters,
+		RequestedVersion:      esoVersion,
+		ControllersOnPlatform: controllersOnPlatform,
+		RemoteNamespace:       remoteNamespace,
+		RemoteCredential:      credential,
 	})
 	mgr := externalsecrets.NewManager()
 	mgr.AddCluster(mcpCluster)
 	mgr.AddCluster(platformCluster)
 
-	platformSecretCleaner := externalsecrets.NewSecretCleaner(platformCluster, tenantNamespace, []corev1.LocalObjectReference{
-		{
-			Name: prefixedChartPullSecret,
-		},
-	})
-	controlPlaneSecretCleaner := externalsecrets.NewSecretCleaner(mcpCluster, externalSecretsNamespace, helmValues.Global.ImagePullSecrets)
+	platformSecrets := append([]corev1.LocalObjectReference{}, helmValues.Global.ImagePullSecrets...)
+	platformSecrets = append(platformSecrets, corev1.LocalObjectReference{Name: prefixedChartPullSecret}, corev1.LocalObjectReference{Name: externalsecrets.RemoteCredentialName})
+	platformSecretCleaner := externalsecrets.NewSecretCleaner(platformCluster, tenantNamespace, platformSecrets)
+	controllerSecrets := append([]corev1.LocalObjectReference{}, helmValues.Global.ImagePullSecrets...)
+	if controllersOnPlatform {
+		controllerSecrets = append(controllerSecrets, corev1.LocalObjectReference{Name: prefixedChartPullSecret}, corev1.LocalObjectReference{Name: externalsecrets.RemoteCredentialName})
+	}
+	controlPlaneSecretCleaner := externalsecrets.NewSecretCleaner(controllerCluster, externalSecretsNamespace, controllerSecrets)
 
 	mgr.AddCleaner(platformSecretCleaner)
 	mgr.AddCleaner(controlPlaneSecretCleaner)
 
 	return mgr, nil
+}
+
+func (r *ExternalSecretsOperatorReconciler) mcpCredentialHash(ctx context.Context, key client.ObjectKey) (string, error) {
+	secret := &corev1.Secret{}
+	if err := r.PlatformCluster.Client().Get(ctx, key, secret); err != nil {
+		return "", fmt.Errorf("failed to read MCP access credential: %w", err)
+	}
+	kubeconfig, ok := secret.Data["kubeconfig"]
+	if !ok || len(kubeconfig) == 0 {
+		return "", fmt.Errorf("MCP access credential %s does not contain kubeconfig", key)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(kubeconfig)), nil
 }
 
 func selectExternalSecretsVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.ExternalSecretsVersion, error) {
@@ -240,4 +287,27 @@ func allResourcesReady(resources []apiv1alpha1.ManagedResource) bool {
 		}
 	}
 	return true
+}
+
+func installationNamespace(defaultNamespace, override, tenantNamespace string, onPlatform bool) string {
+	if onPlatform {
+		return tenantNamespace
+	}
+	if override != "" {
+		return override
+	}
+	return defaultNamespace
+}
+
+func (r *ExternalSecretsOperatorReconciler) configureRemoteVersion(ctx context.Context, active bool, version *apiv1alpha1.ExternalSecretsVersion, namespace string, key client.ObjectKey) error {
+	hash := ""
+	var err error
+	if active {
+		hash, err = r.mcpCredentialHash(ctx, key)
+		if err != nil {
+			return err
+		}
+	}
+	version.HelmValues, err = externalsecrets.ConfigureRemoteMCPControllers(version.HelmValues, externalsecrets.RemoteCredentialName, namespace, hash)
+	return err
 }
