@@ -17,29 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/openmcp-project/extensibility-utils/pkg/objectmanager"
 	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-)
-
-// InstancePhase is a custom type representing the phase of a service instance.
-type InstancePhase string
-
-// ResourceLocation is a custom type representing the location of a resource.
-type ResourceLocation string
-
-// Constants representing the phases of an instance lifecycle.
-const (
-	Pending     InstancePhase = "Pending"
-	Progressing InstancePhase = "Progressing"
-	Ready       InstancePhase = "Ready"
-	Failed      InstancePhase = "Failed"
-	Terminating InstancePhase = "Terminating"
-	Unknown     InstancePhase = "Unknown"
-
-	ManagedControlPlane ResourceLocation = "ManagedControlPlane"
-	PlatformCluster     ResourceLocation = "PlatformCluster"
 )
 
 // ExternalSecretsOperatorSpec defines the desired state of ExternalSecretsOperator
@@ -54,19 +35,7 @@ type ExternalSecretsOperatorStatus struct {
 
 	// Resources managed by this External Secrets Operator instance
 	// +optional
-	Resources []ManagedResource `json:"resources,omitempty"`
-}
-
-// ManagedResource defines a kubernetes object with its lifecycle phase
-type ManagedResource struct {
-	corev1.TypedObjectReference `json:",inline"`
-
-	// +required
-	Phase InstancePhase `json:"phase"`
-	// +optional
-	Message string `json:"message,omitempty"`
-	// +optional
-	Location ResourceLocation `json:"location,omitempty"`
+	Resources []objectmanager.ManagedObject `json:"managedObjects,omitempty"`
 }
 
 // ExternalSecretsOperator is the Schema for the externalsecretsoperators API

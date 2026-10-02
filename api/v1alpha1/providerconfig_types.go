@@ -24,41 +24,28 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// ProviderConfigSpec defines the desired state of ProviderConfig
-type ProviderConfigSpec struct {
-	// Versions specify the valid inputs for the Flux.Spec.Version field.
-	// +required
-	// +kubebuilder:validation:MinItems=1
-	// +listType=map
-	// +listMapKey=version
-	Versions []ExternalSecretsVersion `json:"versions"`
+const defaultPollInterval = time.Minute
 
-	// PollInterval at which the controller requeues to detect drift
-	// +optional
-	// +kubebuilder:default:="1m"
-	// +kubebuilder:validation:Format=duration
-	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
-}
-
-// ExternalSecretsVersion defines a version of External Secrets Operator that can be installed
-type ExternalSecretsVersion struct {
-	// Version is the External Secrets Operation version to install.
-	// This version is compared with ExternalSecretsOperator.Spec.Version to define available versions
-	// and the deployment artifacts of a version.
+// RequestedVersion defines a version of a Service Operator that can be installed.
+// It implements flux.FluxResourceVersion (implicitly — no import needed).
+// +kubebuilder:object:generate=true
+type RequestedVersion struct {
+	// Version is the Service Operator version to install.
+	// This version is compared with ExternalSecretsOperator.Spec.Version to select
+	// the deployment artifacts for a version.
 	// +required
 	Version string `json:"version"`
 
-	// ChartVersion is the version of the Helm chart to install
+	// ChartVersion is the version of the Helm chart to install.
 	// +required
 	ChartVersion string `json:"chartVersion"`
 
-	// ChartURL is a reference to an OCI artifact repository that hosts the external-secrets Helm chart.
+	// ChartURL is a reference to an OCI artifact repository that hosts the Helm chart.
 	// +optional
-	// +kubebuilder:default="oci://ghcr.io/external-secrets/charts/external-secrets"
-	ChartURL *string `json:"chartURL,omitempty"`
+	ChartURL string `json:"chartURL,omitempty"`
 
-	// ChartPullSecret is a reference to the secret containing the credentials to pull the Helm chart.
-	// The secret must be of type kubernetes.io/dockerconfigjson.
+	// ChartPullSecret is a reference to the secret containing the credentials to pull
+	// the Helm chart. The secret must be of type kubernetes.io/dockerconfigjson.
 	// +optional
 	ChartPullSecret string `json:"chartPullSecret,omitempty"`
 
@@ -67,23 +54,43 @@ type ExternalSecretsVersion struct {
 	HelmValues *apiextensionsv1.JSON `json:"helmValues,omitempty"`
 }
 
+// GetVersion implements flux.FluxResourceVersion.
+func (r RequestedVersion) GetVersion() string { return r.Version }
+
+// GetChartVersion implements flux.FluxResourceVersion.
+func (r RequestedVersion) GetChartVersion() string { return r.ChartVersion }
+
+// GetChartURL implements flux.FluxResourceVersion.
+func (r RequestedVersion) GetChartURL() string { return r.ChartURL }
+
+// GetChartPullSecret implements flux.FluxResourceVersion.
+// Returns the raw (un-prefixed) secret name stored in the spec. The controller
+// wraps this type in a resolvedVersion adapter to supply the prefixed name when
+// calling ManageFluxResources.
+func (r RequestedVersion) GetChartPullSecret() string { return r.ChartPullSecret }
+
+// GetHelmValues implements flux.FluxResourceVersion.
+func (r RequestedVersion) GetHelmValues() *apiextensionsv1.JSON { return r.HelmValues }
+
+// ProviderConfigSpec defines the desired state of ProviderConfig
+type ProviderConfigSpec struct {
+	// Versions specify the valid inputs for the ExternalSecretsOperator.Spec.Version field.
+	// +required
+	// +kubebuilder:validation:MinItems=1
+	// +listType=map
+	// +listMapKey=version
+	Versions []RequestedVersion `json:"versions"`
+
+	// PollInterval at which the controller requeues to detect drift
+	// +optional
+	// +kubebuilder:default:="1m"
+	// +kubebuilder:validation:Format=duration
+	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
+}
+
 // ProviderConfigStatus defines the observed state of ProviderConfig.
 type ProviderConfigStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the ProviderConfig resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -129,5 +136,8 @@ func init() {
 
 // PollInterval returns the poll interval duration from the spec.
 func (o *ProviderConfig) PollInterval() time.Duration {
+	if o.Spec.PollInterval == nil {
+		return defaultPollInterval
+	}
 	return o.Spec.PollInterval.Duration
 }

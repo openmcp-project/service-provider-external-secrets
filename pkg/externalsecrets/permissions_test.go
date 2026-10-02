@@ -27,7 +27,7 @@ func TestResolveEsoNamespace(t *testing.T) {
 			},
 			pc: &externalsecretsoperatorsv1alpha1.ProviderConfig{
 				Spec: externalsecretsoperatorsv1alpha1.ProviderConfigSpec{
-					Versions: []externalsecretsoperatorsv1alpha1.ExternalSecretsVersion{
+					Versions: []externalsecretsoperatorsv1alpha1.RequestedVersion{
 						{
 							Version: "v1.0.0",
 						},
@@ -45,7 +45,7 @@ func TestResolveEsoNamespace(t *testing.T) {
 			},
 			pc: &externalsecretsoperatorsv1alpha1.ProviderConfig{
 				Spec: externalsecretsoperatorsv1alpha1.ProviderConfigSpec{
-					Versions: []externalsecretsoperatorsv1alpha1.ExternalSecretsVersion{
+					Versions: []externalsecretsoperatorsv1alpha1.RequestedVersion{
 						{
 							Version: "v1.0.0",
 							HelmValues: &apiextensionsv1.JSON{
@@ -66,7 +66,7 @@ func TestResolveEsoNamespace(t *testing.T) {
 			},
 			pc: &externalsecretsoperatorsv1alpha1.ProviderConfig{
 				Spec: externalsecretsoperatorsv1alpha1.ProviderConfigSpec{
-					Versions: []externalsecretsoperatorsv1alpha1.ExternalSecretsVersion{
+					Versions: []externalsecretsoperatorsv1alpha1.RequestedVersion{
 						{
 							Version: "v1.0.0",
 							HelmValues: &apiextensionsv1.JSON{
@@ -99,7 +99,7 @@ func TestResolveEsoNamespace(t *testing.T) {
 			},
 			pc: &externalsecretsoperatorsv1alpha1.ProviderConfig{
 				Spec: externalsecretsoperatorsv1alpha1.ProviderConfigSpec{
-					Versions: []externalsecretsoperatorsv1alpha1.ExternalSecretsVersion{
+					Versions: []externalsecretsoperatorsv1alpha1.RequestedVersion{
 						{
 							Version: "v1.0.0",
 						},
@@ -117,7 +117,7 @@ func TestResolveEsoNamespace(t *testing.T) {
 			},
 			pc: &externalsecretsoperatorsv1alpha1.ProviderConfig{
 				Spec: externalsecretsoperatorsv1alpha1.ProviderConfigSpec{
-					Versions: []externalsecretsoperatorsv1alpha1.ExternalSecretsVersion{
+					Versions: []externalsecretsoperatorsv1alpha1.RequestedVersion{
 						{
 							Version: "v1.0.0",
 							HelmValues: &apiextensionsv1.JSON{
