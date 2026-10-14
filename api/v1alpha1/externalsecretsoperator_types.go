@@ -44,7 +44,7 @@ const (
 
 // ExternalSecretsOperatorSpec defines the desired state of ExternalSecretsOperator
 type ExternalSecretsOperatorSpec struct {
-	// Version is the external-secrets Helm chart version to install.
+	// Version is the external-secrets version to install.
 	Version string `json:"version"`
 }
 
@@ -55,6 +55,11 @@ type ExternalSecretsOperatorStatus struct {
 	// Resources managed by this External Secrets Operator instance
 	// +optional
 	Resources []ManagedResource `json:"resources,omitempty"`
+	// +optional
+	CreateReconcileAt *metav1.Time `json:"createReconcileAt,omitempty"`
+	// +optional
+	CreateReadyAt *metav1.Time `json:"createReadyAt,omitempty"`
+	// +optional
 }
 
 // ManagedResource defines a kubernetes object with its lifecycle phase

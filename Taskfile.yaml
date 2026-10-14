@@ -11,6 +11,7 @@ vars:
   CRDS_COMPONENTS: 'service-provider-external-secrets'
   CRDS_PATH: '{{.ROOT_DIR}}/api/crds/manifests'
   COMMON_SCRIPT_DIR: '{{.ROOT_DIR}}/hack/common'
+  LINTER_VERSION: v2.14.0
 
 includes:
   shared:

@@ -25,12 +25,16 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	"github.com/openmcp-project/controller-utils/pkg/controller/smartrequeue"
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
+	"github.com/prometheus/client_golang/prometheus"
 
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
@@ -42,8 +46,21 @@ import (
 
 const conditionReasonError = "ReconcileError"
 
-// ErrManagedResources is an end-user facing error if errors are present inside ExternalSecretsOperator.Status.ManagedResources
-var ErrManagedResources = errors.New("resources contain reconcile errors")
+var (
+	// ErrManagedResources is an end-user facing error if errors are present inside ExternalSecretsOperator.Status.ManagedResources
+	ErrManagedResources = errors.New("resources contain reconcile errors")
+	createToReady       = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "sp",
+		Subsystem: "eso",
+		Name:      "resource_create_to_ready_seconds_by_version",
+		Help:      "Time from first (valid) create reconcile to ready in seconds",
+		Buckets:   prometheus.ExponentialBuckets(1, 2, 10),
+	}, []string{"version"})
+)
+
+func init() {
+	metrics.Registry.MustRegister(createToReady)
+}
 
 // ExternalSecretsOperatorReconciler reconciles a ExternalSecretsOperator object
 type ExternalSecretsOperatorReconciler struct {
@@ -53,26 +70,43 @@ type ExternalSecretsOperatorReconciler struct {
 	PlatformCluster *clusters.Cluster
 	// PodNamespace is the namespace where this controller is deployed in.
 	PodNamespace string
+	// smartrequeue
+	Store *smartrequeue.Store
 }
 
 // CreateOrUpdate is called on every add or update event
 func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
-	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
-		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
+		return r.Store.For(obj).ReturnError(ctrlerrors.IgnoreInvalidUserInput(err))
+	}
+	if obj.Status.CreateReconcileAt.IsZero() {
+		obj.Status.CreateReconcileAt = &metav1.Time{Time: time.Now()}
 	}
 	results, err := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
+	if resultContainsErrors || err != nil {
+		return r.Store.For(obj).ReturnError(updateStatusError(obj, resultContainsErrors, err))
+	}
+	if obj.Status.ObservedGeneration != obj.Generation {
+		// exit early to prevent missing status transitions of managed resources
+		serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+		return r.Store.For(obj).IsProgressing()
+	}
 	obj.Status.Resources = managedResources
 	if allResourcesReady(managedResources) {
+		if obj.Status.CreateReadyAt.IsZero() {
+			obj.Status.CreateReadyAt = &metav1.Time{Time: time.Now()}
+			toReadyDuration := obj.Status.CreateReadyAt.Unix() - obj.Status.CreateReconcileAt.Unix()
+			createToReady.With(prometheus.Labels{
+				"version": obj.Spec.Version,
+			}).Observe(float64(toReadyDuration))
+		}
 		serviceprovider.StatusReady(obj)
+		return r.Store.For(obj).IsStable()
 	}
-	if resultContainsErrors || err != nil {
-		return ctrl.Result{}, updateStatusError(obj, resultContainsErrors, err)
-	}
-	return ctrl.Result{}, nil
+	return r.Store.For(obj).IsProgressing()
 }
 
 // Delete is called on every delete event

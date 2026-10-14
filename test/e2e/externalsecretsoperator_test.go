@@ -7,6 +7,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -15,6 +16,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
+	klientresources "sigs.k8s.io/e2e-framework/klient/k8s/resources"
 	"sigs.k8s.io/e2e-framework/klient/wait"
 	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -24,6 +26,7 @@ import (
 	openmcpconditions "github.com/openmcp-project/openmcp-testing/pkg/conditions"
 	"github.com/openmcp-project/openmcp-testing/pkg/providers"
 	"github.com/openmcp-project/openmcp-testing/pkg/resources"
+	"github.com/openmcp-project/openmcp-testing/pkg/setup/extensions/prometheus"
 )
 
 const mcpA = "mcp-a"
@@ -33,8 +36,10 @@ func TestServiceProvider(t *testing.T) {
 	var onboardingObjects unstructured.UnstructuredList
 	var mcpAObjects unstructured.UnstructuredList
 	var mcpBObjects unstructured.UnstructuredList
+	var observabilityWindow prometheus.ObservabilityWindow
 	basicProviderTest := features.New("provider test").
 		Setup(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+			observabilityWindow.Start = time.Now()
 			if _, err := resources.CreateObjectsFromDir(ctx, c, "platform"); err != nil {
 				t.Errorf("failed to create platform cluster objects: %v", err)
 			}
@@ -88,6 +93,29 @@ func TestServiceProvider(t *testing.T) {
 		Assess("MCP A: secret created from fake secret store", validateExternalSecret(mcpA)).
 		Assess("MCP B: domain objects can be created", createSecretStoreAndExternalSecret(mcpB, &mcpBObjects)).
 		Assess("MCP B: secret created from fake secret store", validateExternalSecret(mcpB)).
+		Assess("Benchmark Result", func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+			observabilityWindow.End = time.Now()
+			pods := &corev1.PodList{}
+			if err := c.Client().Resources().List(ctx, pods, klientresources.WithLabelSelector("app.kubernetes.io/instance=externalsecretsoperator")); err != nil {
+				t.Errorf("failed to retrieve service provider pod: %v", err)
+				return ctx
+			}
+			for _, p := range pods.Items {
+				// ignore init pod in phase completed
+				if p.Status.Phase == corev1.PodRunning {
+					observabilityWindow.PodName = p.Name
+					break
+				}
+			}
+			results, err := prometheus.Query(ctx, c, prometheus.AllQueries, observabilityWindow, "")
+			if err != nil {
+				t.Errorf("promQL query failed: %v", err)
+			}
+			for _, qr := range results {
+				klog.Infof("%s\n", qr)
+			}
+			return ctx
+		}).
 		Teardown(cleanupMCPDomainObjects(mcpA, &mcpAObjects)).
 		Teardown(cleanupMCPDomainObjects(mcpB, &mcpBObjects)).
 		Teardown(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {

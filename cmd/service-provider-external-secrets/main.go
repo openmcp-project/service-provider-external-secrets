@@ -29,6 +29,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	"github.com/openmcp-project/controller-utils/pkg/controller/smartrequeue"
 	crdutil "github.com/openmcp-project/controller-utils/pkg/crds"
 	"github.com/openmcp-project/controller-utils/pkg/logging"
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
@@ -352,6 +353,8 @@ func main() {
 		clusterAccessReconciler = localaccess.NewLocalAdvancedClusterAccessReconciler(clusterAccessReconciler)
 	}
 
+	store := smartrequeue.NewStore(5*time.Second, 30*time.Minute, 2)
+
 	clusterAccessReconciler.
 		WithManagedLabels(func(controllerName string, req reconcile.Request, reg advanced.ClusterRegistration) (string, string, map[string]string) {
 			_, managedPurpose, _ := advanced.DefaultManagedLabelGenerator(controllerName, req, reg)
@@ -375,6 +378,7 @@ func main() {
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
+			Store:             store,
 		}).
 		AdvancedClusterAccessReconciler(clusterAccessReconciler).
 		AdditionalDataGenerators(externalsecrets.ResolveEsoNamespace).

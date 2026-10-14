@@ -16,6 +16,7 @@ import (
 	"github.com/openmcp-project/openmcp-testing/pkg/setup"
 	"github.com/openmcp-project/openmcp-testing/pkg/setup/extensions"
 	"github.com/openmcp-project/openmcp-testing/pkg/setup/extensions/fluxcd"
+	"github.com/openmcp-project/openmcp-testing/pkg/setup/extensions/prometheus"
 )
 
 var testenv env.Environment
@@ -48,6 +49,18 @@ func TestMain(m *testing.M) {
 		},
 		Extensions: []extensions.Extension{
 			&fluxcd.FluxCD{},
+			&prometheus.Prometheus{
+				ScrapeServiceProviders: []string{
+					"externalsecretsoperator",
+				},
+				RemoteClusters: []prometheus.RemoteCluster{
+					{
+						Name:             "onboarding",
+						KubeconfigSecret: "managedcontrolplane--onboarding.kubeconfig",
+						SecretNamespace:  "openmcp-system",
+					},
+				},
+			},
 		},
 	}
 	testenv = env.NewWithConfig(envconf.New().WithNamespace(openmcp.Namespace))
