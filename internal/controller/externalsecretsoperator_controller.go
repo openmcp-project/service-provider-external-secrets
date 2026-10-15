@@ -69,6 +69,11 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 	if err != nil {
 		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, err))
 	}
+	if obj.Status.ObservedGeneration != obj.Generation {
+		// exit early to prevent missing status transitions of managed resources
+		serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+		return r.Requeue.For(obj).IsProgressing()
+	}
 	if reconcileResult.Requeue {
 		serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 		return r.Requeue.For(obj).IsProgressing()
@@ -92,7 +97,7 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 	if reconcileResult.Requeue {
 		return r.Requeue.For(obj).IsProgressing()
 	}
-	return r.Requeue.For(obj).IsStable()
+	return r.Requeue.For(obj).StopRequeue()
 }
 
 func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, err error) error {
