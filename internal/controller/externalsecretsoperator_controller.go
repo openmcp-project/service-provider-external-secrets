@@ -66,13 +66,18 @@ func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, 
 	}
 	results, err := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
+	if err != nil || resultContainsErrors {
+		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, resultContainsErrors, err))
+	}
+	if obj.Status.ObservedGeneration != obj.Generation {
+		// exit early to prevent missing status transitions of managed resources
+		serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+		return r.Requeue.For(obj).IsProgressing()
+	}
 	obj.Status.Resources = managedResources
 	if allResourcesReady(managedResources) {
 		serviceprovider.StatusReady(obj)
 		return r.Requeue.For(obj).IsStable()
-	}
-	if resultContainsErrors || err != nil {
-		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, resultContainsErrors, err))
 	}
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	return r.Requeue.For(obj).IsProgressing()
@@ -87,12 +92,12 @@ func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *api
 	}
 	results, err := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
+	if resultContainsErrors || err != nil {
+		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, resultContainsErrors, err))
+	}
 	obj.Status.Resources = managedResources
 	if externalsecrets.AllDeleted(results) {
 		return ctrl.Result{}, nil
-	}
-	if resultContainsErrors || err != nil {
-		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, resultContainsErrors, err))
 	}
 	serviceprovider.StatusTerminating(obj)
 	return r.Requeue.For(obj).IsProgressing()
