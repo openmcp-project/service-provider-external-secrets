@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/fluxcd/pkg/apis/meta"
 	corev1 "k8s.io/api/core/v1"
@@ -34,6 +33,7 @@ import (
 	"github.com/openmcp-project/extensibility-utils/pkg/objectmanager/flux"
 	"github.com/openmcp-project/extensibility-utils/pkg/objectmanager/secret"
 
+	"github.com/openmcp-project/controller-utils/pkg/controller/smartrequeue"
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
@@ -54,49 +54,53 @@ type ExternalSecretsOperatorReconciler struct {
 	PlatformCluster *clusters.Cluster
 	// PodNamespace is the namespace where this controller is deployed in.
 	PodNamespace string
+	// Requeue is used for smart requeuing
+	Requeue *smartrequeue.Store
 }
 
 // CreateOrUpdate is called on every add or update event
 func (r *ExternalSecretsOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
-	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
-		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
-		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
+		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, err))
 	}
 	reconcileResult, err := mgr.Apply(ctx)
 	obj.Status.Resources = reconcileResult.ManagedObjects()
 	if err != nil {
-		return ctrl.Result{}, updateStatusError(obj, err)
+		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, err))
 	}
 	if reconcileResult.Requeue {
-		return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+		serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+		return r.Requeue.For(obj).IsProgressing()
 	}
 	serviceprovider.StatusReady(obj)
-	return ctrl.Result{}, nil
+	return r.Requeue.For(obj).IsStable()
 }
 
 // Delete is called on every delete event
 func (r *ExternalSecretsOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.ExternalSecretsOperator, pc *apiv1alpha1.ProviderConfig, clusters clusteraccess.ClusterContext) (ctrl.Result, error) {
-	serviceprovider.StatusTerminating(obj)
 	mgr, err := r.createObjectManager(obj, pc, clusters)
 	if err != nil {
-		serviceprovider.StatusProgressing(obj, conditionReasonError, err.Error())
-		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
+		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, err))
 	}
 	reconcileResult, err := mgr.Delete(ctx)
 	obj.Status.Resources = reconcileResult.ManagedObjects()
 	if err != nil {
-		return ctrl.Result{}, updateStatusError(obj, err)
+		return r.Requeue.For(obj).ReturnError(updateStatusError(obj, err))
 	}
+	serviceprovider.StatusTerminating(obj)
 	if reconcileResult.Requeue {
-		return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+		return r.Requeue.For(obj).IsProgressing()
 	}
-	return ctrl.Result{}, nil
+	return r.Requeue.For(obj).IsStable()
 }
 
 func updateStatusError(obj *apiv1alpha1.ExternalSecretsOperator, err error) error {
-	serviceprovider.StatusProgressing(obj, conditionReasonError, userErrorMessage(err))
+	if obj.DeletionTimestamp.IsZero() {
+		serviceprovider.StatusProgressing(obj, conditionReasonError, userErrorMessage(err))
+	} else {
+		serviceprovider.StatusTerminatingWithReason(obj, conditionReasonError, userErrorMessage(err))
+	}
 	return ctrlerrors.IgnoreInvalidUserInput(err)
 }
 
