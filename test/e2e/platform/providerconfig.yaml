@@ -3,11 +3,9 @@ kind: ProviderConfig
 metadata:
   name: externalsecretsoperator
 spec:
-  pollInterval: 10s
   versions:
     - version: "v2.1.0"
       chartVersion: "2.1.0"
-      chartURL: oci://ghcr.io/external-secrets/charts/external-secrets
       chartPullSecret: privateregcred
       helmValues:
         namespaceOverride: eso-system

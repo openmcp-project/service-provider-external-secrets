@@ -24,9 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+const defaultPollInterval = time.Minute * 10
+
 // ProviderConfigSpec defines the desired state of ProviderConfig
 type ProviderConfigSpec struct {
-	// Versions specify the valid inputs for the Flux.Spec.Version field.
+	// Versions specify the valid inputs for the ExternalSecretsOperator.Spec.Version field.
 	// +required
 	// +kubebuilder:validation:MinItems=1
 	// +listType=map
@@ -35,20 +37,20 @@ type ProviderConfigSpec struct {
 
 	// PollInterval at which the controller requeues to detect drift
 	// +optional
-	// +kubebuilder:default:="1m"
+	// +kubebuilder:default:="10m"
 	// +kubebuilder:validation:Format=duration
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
 }
 
-// ExternalSecretsVersion defines a version of External Secrets Operator that can be installed
+// ExternalSecretsVersion defines a version of External Secrets Operator that can be installed.
 type ExternalSecretsVersion struct {
-	// Version is the External Secrets Operation version to install.
-	// This version is compared with ExternalSecretsOperator.Spec.Version to define available versions
-	// and the deployment artifacts of a version.
+	// Version is the External Secrets Operator version to install.
+	// This version is compared with ExternalSecretsOperator.Spec.Version to select
+	// the deployment artifacts for a version.
 	// +required
 	Version string `json:"version"`
 
-	// ChartVersion is the version of the Helm chart to install
+	// ChartVersion is the version of the Helm chart to install.
 	// +required
 	ChartVersion string `json:"chartVersion"`
 
@@ -69,21 +71,7 @@ type ExternalSecretsVersion struct {
 
 // ProviderConfigStatus defines the observed state of ProviderConfig.
 type ProviderConfigStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the ProviderConfig resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -129,5 +117,8 @@ func init() {
 
 // PollInterval returns the poll interval duration from the spec.
 func (o *ProviderConfig) PollInterval() time.Duration {
+	if o.Spec.PollInterval == nil {
+		return defaultPollInterval
+	}
 	return o.Spec.PollInterval.Duration
 }
