@@ -8,7 +8,6 @@ spec:
       chartVersion: "2.1.0"
       chartPullSecret: privateregcred
       helmValues:
-        namespaceOverride: eso-system
         global:
           repository: ghcr.io/external-secrets/external-secrets
           imagePullSecrets:
@@ -22,16 +21,16 @@ spec:
           repository: ghcr.io/external-secrets/external-secrets
           # -- The image tag to use. The default is the chart appVersion.
           # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
-          tag: "v2.9.0"
+          tag: "v2.14.0"
         webhook:
           image:
             repository: ghcr.io/external-secrets/external-secrets
             # -- The image tag to use. The default is the chart appVersion.
             # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
-            tag: "v2.9.0"
+            tag: "v2.14.0"
         certController:
           image:
             repository: ghcr.io/external-secrets/external-secrets
             # -- The image tag to use. The default is the chart appVersion.
             # renovate: datasource=docker depName=external-secrets registryUrl=https://ghcr.io/external-secrets
-            tag: "v2.9.0"
+            tag: "v2.14.0"
